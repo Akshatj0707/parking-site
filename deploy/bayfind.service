@@ -1,0 +1,45 @@
+# The Bayfind parking site, run by systemd.
+# deploy/setup.sh replaces the three __CAPITAL__ words and installs this as /etc/systemd/system/bayfind.service.
+# systemd starts the site when the server starts and starts it again if it ever stops.
+
+[Unit]
+Description=Bayfind parking website
+After=network-online.target
+Wants=network-online.target
+# However many times it crashes, keep starting it again.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=bayfind
+Group=bayfind
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__ENV_FILE__
+ExecStart=__NODE__ __APP_DIR__/server.js
+Restart=always
+RestartSec=3
+# When told to stop, the site finishes the requests it is working on (up to 10 seconds) and then exits.
+TimeoutStopSec=20
+
+# The bookings file lives in /var/lib/bayfind. systemd makes that folder, owned by the bayfind user, and it is the
+# only place the site is allowed to write to.
+StateDirectory=bayfind
+StateDirectoryMode=0750
+UMask=0077
+
+# A small box around the site, in case a bug is ever found in it or in a library it uses.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+# MemoryDenyWriteExecute is left off on purpose: Node.js cannot run with it.
+
+[Install]
+WantedBy=multi-user.target

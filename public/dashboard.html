@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Operator dashboard · {{SITE_NAME}}</title>
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to see the dashboard.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}<span class="brand-sub">Operator</span></a>
+    <nav class="nav" aria-label="Main">
+      <a class="opt" href="/lookup">Find a booking</a>
+      <a class="nav-cta" href="/book">Booking page</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad">
+  <div class="dash-head rise">
+    <div class="stack g8">
+      <p class="eyebrow">Operator dashboard</p>
+      <h1 class="h1">Today at the lot</h1>
+    </div>
+    <p class="updated" id="updated" role="status">Loading…</p>
+  </div>
+
+  <div class="stack g12" id="notice"></div>
+
+  <section class="tiles" id="tiles" aria-label="Today in numbers"></section>
+
+  <div class="dash-cols">
+    <div class="dash-main" id="lots"></div>
+    <div class="dash-side">
+      <section class="panel" aria-labelledby="att-title">
+        <h2 id="att-title">Needs attention</h2>
+        <div class="stack g12" id="attention"><p class="muted">Loading…</p></div>
+      </section>
+      <section class="panel" id="cancel-panel" aria-labelledby="cancel-title">
+        <div class="panel-head">
+          <h2 id="cancel-title">Cancel and refund a booking</h2>
+          <p class="fine">For a customer who asks to cancel. The full amount goes back to their original payment method.</p>
+        </div>
+        <form class="cancel-form" id="cancel-form" novalidate>
+          <div class="field">
+            <label class="label" for="cancel-plate">Vehicle number</label>
+            <div class="input-row">
+              <input class="input input-plate" id="cancel-plate" name="plate" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" placeholder="MP 09 AB 1234" aria-describedby="cancel-plate-help">
+              <button class="btn btn-navy" type="submit" id="cancel-go"><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#search"/></svg>Find booking</button>
+            </div>
+            <p class="help" id="cancel-plate-help">For example MP 09 AB 1234.</p>
+          </div>
+        </form>
+        <div class="stack g16" id="cancel-results" aria-live="polite"></div>
+        <p class="fine">Only paid bookings that have not ended yet can be cancelled here, and a refund that failed can be tried again. For a booking that has already ended, refund the payment from the Razorpay dashboard.</p>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel" aria-labelledby="rec-title">
+    <div class="panel-head">
+      <h2 id="rec-title">Recent payments</h2>
+      <p class="fine">The latest 25 payments and refunds</p>
+    </div>
+    <div class="table-wrap" id="recent"><p class="muted">Loading…</p></div>
+  </section>
+
+  <section class="panel" id="check-panel" aria-labelledby="check-title">
+    <div class="panel-head">
+      <h2 id="check-title">Setup check</h2>
+      <p class="fine">For whoever set up the website. Not needed day to day.</p>
+    </div>
+    <p class="muted">Shows how this website sees your connection: whether it can tell visitors apart, whether it knows the connection is secure, where it saves bookings, and how the chat assistant is answering visitors. Press the button after the site was put online or moved to a new host, or after you add the chat key.</p>
+    <div class="row"><button class="btn btn-outline btn-sm" type="button" id="check-go">Run the check</button></div>
+    <div class="stack g20" id="check-results" aria-live="polite"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="read-title">
+    <h2 id="read-title">How to read this page</h2>
+    <ul class="plain-list">
+      <li><b>In use now</b> means a paid booking is running at this moment. It is based on bookings, not on sensors, so it cannot tell whether the vehicle has actually arrived.</li>
+      <li><b>Booked later today</b> is a paid booking that starts after now.</li>
+      <li><b>Payment in progress</b> is a bay held for someone who is paying right now. It is released after {{HOLD_MINUTES}} minutes if they do not finish.</li>
+      <li>Money figures count payments received today, in rupees. A booking that is cancelled and refunded is taken out of them.</li>
+      <li>To cancel a booking and give the money back, use <b>Cancel and refund a booking</b> at the top of the page.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Operator dashboard</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/dashboard.js"></script>
+</body>
+</html>

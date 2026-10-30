@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book a bay · {{SITE_NAME}}</title>
+  <meta name="description" content="Choose your vehicle, time and bay, then pay online. {{CAR_TOTAL}} car bays and {{BIKE_TOTAL}} two-wheeler bays.">
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/chat.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to book a bay.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+    <nav class="nav" aria-label="Main">
+      <a class="opt" href="/#pricing">Pricing</a>
+      <a class="opt" href="/lookup">Find my booking</a>
+      <a class="nav-cta" href="/book" aria-current="page">Book a bay</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad">
+  <div class="stack g12 rise">
+    <p class="eyebrow">Book a bay</p>
+    <h1 class="h1">Reserve your bay</h1>
+    <p class="lead">Choose your vehicle, time and bay, then pay online. You can book {{HOURS_MIN}} to {{HOURS_MAX}} hours, up to {{MAX_ADVANCE_DAYS}} days ahead.</p>
+  </div>
+
+  <div class="book-grid" id="book-grid">
+    <div class="book-main" id="book-main">
+      <section class="panel rise d1" aria-labelledby="p1">
+        <h2 id="p1">Your vehicle</h2>
+        <div class="stack g8">
+          <p class="label" id="lbl-vehicle">Vehicle type</p>
+          <div class="row" id="vehicle-row" role="group" aria-labelledby="lbl-vehicle"></div>
+        </div>
+        <div class="field field-narrow">
+          <label class="label" for="plate">Vehicle number</label>
+          <input class="input input-plate" id="plate" name="plate" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" placeholder="MP 09 AB 1234" aria-describedby="plate-help">
+          <p class="help" id="plate-help">For example MP 09 AB 1234.</p>
+        </div>
+      </section>
+
+      <section class="panel rise d2" aria-labelledby="p2">
+        <h2 id="p2">When</h2>
+        <div class="stack g8">
+          <p class="label" id="lbl-day">Day</p>
+          <div class="row" id="day-row" role="group" aria-labelledby="lbl-day"></div>
+        </div>
+        <div class="row-form">
+          <div class="field field-time">
+            <label class="label" for="time">Start time</label>
+            <select class="select" id="time"></select>
+          </div>
+          <div class="stack g8">
+            <p class="label" id="lbl-hours">How long</p>
+            <div class="row" id="hours-row" role="group" aria-labelledby="lbl-hours"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel rise d3" aria-labelledby="p3">
+        <div class="panel-head">
+          <h2 id="p3">Choose your bay</h2>
+          <p class="fine" id="bay-count" role="status"></p>
+        </div>
+        <div class="stack g8">
+          <p class="label" id="lbl-zone">Zone</p>
+          <div class="row" id="zone-row" role="group" aria-labelledby="lbl-zone"></div>
+        </div>
+        <div class="bay-grid" id="bay-grid" aria-busy="true"></div>
+        <div class="legend">
+          <span><i class="swatch sw-free"></i>Free</span>
+          <span><i class="swatch sw-taken"></i>Taken</span>
+          <span><i class="swatch sw-pick"></i>Your pick</span>
+        </div>
+        <p class="fine" id="bay-hint"></p>
+      </section>
+    </div>
+
+    <aside class="summary rise d2" id="summary" aria-label="Booking summary"></aside>
+  </div>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Payments are processed by Razorpay.</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/book.js"></script>
+<script src="/js/chat.js"></script>
+</body>
+</html>

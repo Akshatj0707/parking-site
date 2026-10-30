@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Find my booking · {{SITE_NAME}}</title>
+  <meta name="description" content="Type your vehicle number to see your bay and booking time.">
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/chat.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to look up a booking.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+    <nav class="nav" aria-label="Main">
+      <a class="opt" href="/#pricing">Pricing</a>
+      <a class="opt" href="/lookup" aria-current="page">Find my booking</a>
+      <a class="nav-cta" href="/book">Book a bay</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap-narrow main-pad">
+  <div class="stack g12 rise">
+    <p class="eyebrow">Find my booking</p>
+    <h1 class="h1">Find your bay</h1>
+    <p class="lead">Type the vehicle number you booked with and we will show your bay and booking time.</p>
+  </div>
+
+  <form class="panel rise d2" id="lookup-form" novalidate>
+    <div class="field">
+      <label class="label" for="plate">Vehicle number</label>
+      <input class="input input-plate" id="plate" name="plate" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" placeholder="MP 09 AB 1234" aria-describedby="plate-help">
+      <p class="help" id="plate-help">For example MP 09 AB 1234.</p>
+    </div>
+    <button class="btn btn-navy btn-tall" type="submit" id="go"><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#search"/></svg>Find my booking</button>
+  </form>
+
+  <div class="stack g20" id="results" aria-live="polite"></div>
+
+  <p class="fine">Only bookings that have not ended yet are shown. Anyone who knows a vehicle number can look it up, so this page never shows names, phone numbers or payment details.</p>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Payments are processed by Razorpay.</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/lookup.js"></script>
+<script src="/js/chat.js"></script>
+</body>
+</html>

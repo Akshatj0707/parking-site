@@ -1,0 +1,20 @@
+{
+  "name": "bayfind-smart-parking",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart parking website with Razorpay payments, saved bookings and lookup by vehicle number",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "express": "^4.22.3",
+    "razorpay": "^2.9.8"
+  }
+}

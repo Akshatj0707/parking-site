@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{SITE_NAME}}: book a parking bay online</title>
+  <meta name="description" content="Reserve one of {{TOTAL_BAYS}} parking bays by vehicle number and pay online. {{CAR_TOTAL}} car bays and {{BIKE_TOTAL}} two-wheeler bays.">
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/chat.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to see live availability and to book a bay.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<div class="stage">
+  <header class="site-header overlay on-dark">
+    <div class="bar">
+      <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <nav class="nav" aria-label="Main">
+        <a class="opt" href="#how">How it works</a>
+        <a class="opt" href="#pricing">Pricing</a>
+        <a class="opt" href="/lookup">Find my booking</a>
+        <a class="nav-cta" href="/book">Book a bay</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero on-dark" aria-labelledby="hero-title">
+      <div class="bgfx" aria-hidden="true">
+        <div class="glow"></div>
+        <div class="glow2"></div>
+        <div class="lines"></div>
+        <div class="streak s1"></div>
+        <div class="streak s2"></div>
+        <div class="streak s3"></div>
+      </div>
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <p class="eyebrow rise d1">Smart parking</p>
+          <h1 id="hero-title" class="rise d2">Know your bay before you arrive.</h1>
+          <p class="sub rise d3">Reserve one of {{CAR_TOTAL}} car bays or {{BIKE_TOTAL}} two-wheeler bays by vehicle number, pay securely online, and look your booking up any time with the same number.</p>
+          <div class="hero-actions rise d4">
+            <a class="btn btn-accent btn-tall" href="/book">Book a bay</a>
+            <a class="btn btn-outline-light btn-tall" href="/lookup">Find my booking</a>
+          </div>
+          <p class="fine light rise d4">From ₹{{RATE_BIKE_WEEKDAY}} an hour for two-wheelers and ₹{{RATE_CAR_WEEKDAY}} an hour for cars.</p>
+          <div class="road rise d4" aria-hidden="true">
+            <div class="lane"></div>
+            <svg class="car" width="76" height="40" viewBox="0 0 76 40" fill="none">
+              <path d="M5 29v-6.5c0-2.1 1.5-3.9 3.6-4.3l9-1.8 7.2-8.4c1-1.2 2.5-1.8 4-1.8h15.4c1.6 0 3 .7 4 1.9l7 8.2 7.4 1.7c2.1.5 3.5 2.2 3.5 4.3V29c0 1.4-1.1 2.5-2.5 2.5H7.5C6.1 31.5 5 30.4 5 29z" fill="#ffc928"/>
+              <path d="M24.5 17.6l5.2-6h6.3v6zM39.5 17.6v-6h5.2c.9 0 1.7.4 2.3 1.1l4.4 4.9z" fill="#0b1530" opacity=".85"/>
+              <circle cx="21" cy="31.5" r="5.2" fill="#0b1530" stroke="#ffc928" stroke-width="2.4"/>
+              <circle cx="55" cy="31.5" r="5.2" fill="#0b1530" stroke="#ffc928" stroke-width="2.4"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="live-card rise d3" aria-labelledby="live-title">
+          <div class="live-head">
+            <div>
+              <h2 class="live-title" id="live-title">Free bays</h2>
+              <p class="live-sub">For the next available hour</p>
+            </div>
+            <span class="live-tag"><span class="live-dot" aria-hidden="true"></span>Live</span>
+          </div>
+
+          <div class="avail">
+            <div class="avail-top">
+              <span class="avail-name">4-wheeler</span>
+              <span class="avail-count"><b id="free-car">–</b>of {{CAR_TOTAL}} free</span>
+            </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" id="fill-car"></div></div>
+            <div class="zone-pills" id="zones-car"></div>
+          </div>
+
+          <div class="avail">
+            <div class="avail-top">
+              <span class="avail-name">2-wheeler</span>
+              <span class="avail-count"><b id="free-bike">–</b>of {{BIKE_TOTAL}} free</span>
+            </div>
+            <div class="meter-track" aria-hidden="true"><div class="meter-fill" id="fill-bike"></div></div>
+            <div class="zone-pills" id="zones-bike"></div>
+          </div>
+
+          <p class="live-status" id="live-status" role="status">Checking free bays…</p>
+          <div class="live-links">
+            <a class="btn btn-accent" href="/book?vehicle=car">Book a car bay</a>
+            <a class="btn btn-outline-light" href="/book?vehicle=bike">Book a two-wheeler bay</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how" aria-labelledby="how-title">
+      <div class="section-head reveal">
+        <p class="eyebrow">How it works</p>
+        <h2 id="how-title" class="h2">Book in three steps.</h2>
+        <p class="lead">No account and no app. Everything happens on this website.</p>
+      </div>
+      <div class="grid-auto stretch">
+        <article class="card card-step reveal">
+          <span class="step-num" aria-hidden="true">1</span>
+          <h3>Enter your vehicle number</h3>
+          <p class="body">Choose car or two-wheeler, type your registration number and pick a day and start time. You can book {{HOURS_MIN}} to {{HOURS_MAX}} hours, up to {{MAX_ADVANCE_DAYS}} days ahead.</p>
+        </article>
+        <article class="card card-step reveal">
+          <span class="step-num" aria-hidden="true">2</span>
+          <h3>Choose a bay and pay</h3>
+          <p class="body">See exactly which bays are free for your time, tap the one you want and pay online with Razorpay. Your bay is held for {{HOLD_MINUTES}} minutes while you pay.</p>
+        </article>
+        <article class="card card-step reveal">
+          <span class="step-num" aria-hidden="true">3</span>
+          <h3>Park in your bay</h3>
+          <p class="body">Your confirmation shows your bay number and a booking reference. If you lose it, type your vehicle number into Find my booking.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="lot" aria-labelledby="lot-title">
+      <div class="section-head reveal">
+        <p class="eyebrow">The lot</p>
+        <h2 id="lot-title" class="h2">Separate bays for cars and two-wheelers.</h2>
+      </div>
+      <div class="grid-auto stretch">
+        <article class="card card-dark reveal">
+          <p class="big-num">{{CAR_TOTAL}}</p>
+          <h3>4-wheeler bays</h3>
+          <p class="body">Spread over {{CAR_ZONE_COUNT}} levels with {{CAR_PER_ZONE}} bays on each. Every bay has its own number.</p>
+        </article>
+        <article class="card card-dark reveal">
+          <p class="big-num">{{BIKE_TOTAL}}</p>
+          <h3>2-wheeler bays</h3>
+          <p class="body">Spread over {{BIKE_ZONE_COUNT}} zones with {{BIKE_PER_ZONE}} bays in each, so a two-wheeler never takes a car’s space.</p>
+        </article>
+        <article class="card reveal">
+          <svg class="ico-lg ico-blue" aria-hidden="true"><use href="/img/icons.svg#shield"/></svg>
+          <h3>Your card details stay with Razorpay</h3>
+          <p class="body">Payments are handled by Razorpay in its own secure window. Your card, UPI or bank details never reach our server.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="ops on-dark" aria-labelledby="ops-title">
+      <div class="ops-inner">
+        <div class="ops-copy reveal">
+          <p class="eyebrow">For the lot operator</p>
+          <h2 id="ops-title" class="h2">See the lot as it is right now.</h2>
+          <p class="lead">The operator dashboard is built from the same bookings your customers make, and it is protected by a password that you set.</p>
+          <ul class="ticks">
+            <li><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#check"/></svg>Bays in use now, booked for later today and free</li>
+            <li><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#check"/></svg>Payments and money received today</li>
+            <li><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#check"/></svg>A warning when a refund has to be sent by hand</li>
+          </ul>
+          <div><a class="btn btn-accent btn-tall" href="/dashboard">Open the dashboard</a></div>
+        </div>
+        <div class="ops-panel reveal">
+          <h3>What the dashboard shows</h3>
+          <div class="ops-item">
+            <span class="ops-ico"><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#grid"/></svg></span>
+            <div><b>Bay map</b><span>Every bay at a glance: free, in use, booked for later or held while someone pays.</span></div>
+          </div>
+          <div class="ops-item">
+            <span class="ops-ico"><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#rupee"/></svg></span>
+            <div><b>Today’s payments</b><span>Every payment received today, with the bay, time and Razorpay payment ID.</span></div>
+          </div>
+          <div class="ops-item">
+            <span class="ops-ico"><svg class="ico" aria-hidden="true"><use href="/img/icons.svg#alert"/></svg></span>
+            <div><b>Needs attention</b><span>Anything that needs you, such as a refund that did not go through.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="pricing" aria-labelledby="pricing-title">
+      <div class="section-head reveal">
+        <p class="eyebrow">Pricing</p>
+        <h2 id="pricing-title" class="h2">Simple hourly rates.</h2>
+        <p class="lead">You pay by the hour. The rate depends on the day your booking starts, and you see the total before you pay.</p>
+      </div>
+      <div class="grid-auto stretch">
+        <article class="card card-dark price-card reveal">
+          <span class="price-tag">4-wheeler</span>
+          <p class="price-main">₹{{RATE_CAR_WEEKDAY}} <small>an hour, {{WEEKDAY_TEXT}}</small></p>
+          <p class="price-second">₹{{RATE_CAR_WEEKEND}} <small>an hour, {{WEEKEND_TEXT}}</small></p>
+          <ul class="plain-list">
+            <li>{{CAR_TOTAL}} bays across {{CAR_ZONE_COUNT}} levels</li>
+            <li>{{HOURS_MIN}} to {{HOURS_MAX}} hours per booking</li>
+          </ul>
+          <a class="btn btn-accent" href="/book?vehicle=car">Book a car bay</a>
+        </article>
+        <article class="card price-card reveal">
+          <span class="price-tag">2-wheeler</span>
+          <p class="price-main">₹{{RATE_BIKE_WEEKDAY}} <small>an hour, {{WEEKDAY_TEXT}}</small></p>
+          <p class="price-second">₹{{RATE_BIKE_WEEKEND}} <small>an hour, {{WEEKEND_TEXT}}</small></p>
+          <ul class="plain-list">
+            <li>{{BIKE_TOTAL}} bays across {{BIKE_ZONE_COUNT}} zones</li>
+            <li>{{HOURS_MIN}} to {{HOURS_MAX}} hours per booking</li>
+          </ul>
+          <a class="btn btn-navy" href="/book?vehicle=bike">Book a two-wheeler bay</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section narrow" id="faq" aria-labelledby="faq-title">
+      <div class="section-head reveal">
+        <p class="eyebrow">Questions</p>
+        <h2 id="faq-title" class="h2">Good to know.</h2>
+      </div>
+      <div class="faq reveal">
+          <details>
+            <summary>Do I need an account?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">No. You book with your vehicle number and pay online. To see a booking again, open Find my booking and type the same number.</p>
+          </details>
+          <details>
+            <summary>How long is my bay held while I pay?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">{{HOLD_MINUTES}} minutes from the moment you press pay. If the time runs out, the bay goes back on sale and you can start again.</p>
+          </details>
+          <details>
+            <summary>How do weekday and weekend rates work?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">Weekday rates apply on {{WEEKDAY_TEXT}} and weekend rates on {{WEEKEND_TEXT}}. The rate depends on the day your booking starts, and it applies to every hour of that booking.</p>
+          </details>
+          <details>
+            <summary>What if I arrive late?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">Your bay stays reserved for the whole time you booked, even if you arrive late. The booking ends at the end time you chose.</p>
+          </details>
+          <details>
+            <summary>Can I stay longer, or cancel?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">To stay longer, make a second booking that starts when your first one ends. You can pick the same bay if it is free. Cancelling is not possible on the website yet. {{SUPPORT_LINE}} The <a href="/refunds">cancellation and refund policy</a> says what we do.</p>
+          </details>
+          <details>
+            <summary>My payment went through but I saw an error. What now?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">Please do not pay twice. We check every payment with Razorpay, and a payment that cannot become a booking is refunded automatically, usually within 5 to 10 working days. If something still looks wrong, contact us with your vehicle number. {{SUPPORT_LINE}}</p>
+          </details>
+          <details>
+            <summary>Who can see my booking?<svg class="ico chev" aria-hidden="true"><use href="/img/icons.svg#chev"/></svg></summary>
+            <p class="ans">Anyone who types in your vehicle number can see its bay and booking time in Find my booking. We never show names, phone numbers or payment details there.</p>
+          </details>
+      </div>
+    </section>
+
+    <section class="cta on-dark" aria-labelledby="cta-title">
+      <h2 id="cta-title">Ready to park?</h2>
+      <p class="lead">Pick your time and your bay in under a minute.</p>
+      <div class="row">
+        <a class="btn btn-accent btn-tall" href="/book">Book a bay</a>
+        <a class="btn btn-outline-light btn-tall" href="/lookup">Find my booking</a>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Payments are processed by Razorpay.</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/home.js"></script>
+<script src="/js/chat.js"></script>
+</body>
+</html>

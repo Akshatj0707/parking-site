@@ -1,0 +1,12 @@
+# Runs bayfind-backup.service every night. If the server was off at that time, it runs as soon as the server is back.
+
+[Unit]
+Description=Nightly backup of the Bayfind bookings file
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

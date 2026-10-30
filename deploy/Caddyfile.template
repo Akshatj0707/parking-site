@@ -1,0 +1,11 @@
+# Bayfind: settings for the Caddy web server.
+# deploy/setup.sh replaces the two __CAPITAL__ words and saves the result as /etc/caddy/Caddyfile.
+#
+# Caddy gets the HTTPS certificate for the address below by itself, renews it in good time, and sends anyone who
+# types http:// to the https:// address. Visitors talk to Caddy, and Caddy passes them on to the site, which listens
+# on this server only (127.0.0.1), so nobody can reach it without going through Caddy.
+
+__DOMAIN__ {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:__PORT__
+}

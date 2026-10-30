@@ -1,0 +1,9 @@
+# Makes one backup copy of the bookings file. bayfind-backup.timer runs it every night.
+# Installed by deploy/setup.sh; the word __APP_DIR__ is replaced there.
+
+[Unit]
+Description=Back up the Bayfind bookings file
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash __APP_DIR__/deploy/backup.sh

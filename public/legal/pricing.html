@@ -1,0 +1,36 @@
+    <p>All prices are in Indian rupees (₹) and are charged per hour. The total is shown before you pay, and it is the full amount you are charged.</p>
+
+    <table class="rate-table">
+      <thead>
+        <tr>
+          <th scope="col">Vehicle</th>
+          <th scope="col">Weekdays<span class="sub">{{WEEKDAY_TEXT}}</span></th>
+          <th scope="col">Weekends<span class="sub">{{WEEKEND_TEXT}}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Car<span class="sub">{{CAR_TOTAL}} bays</span></th>
+          <td>₹{{RATE_CAR_WEEKDAY}} per hour</td>
+          <td>₹{{RATE_CAR_WEEKEND}} per hour</td>
+        </tr>
+        <tr>
+          <th scope="row">Two-wheeler<span class="sub">{{BIKE_TOTAL}} bays</span></th>
+          <td>₹{{RATE_BIKE_WEEKDAY}} per hour</td>
+          <td>₹{{RATE_BIKE_WEEKEND}} per hour</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>How the price is worked out</h2>
+    <ul>
+      <li>You choose a whole number of hours, from {{HOURS_MIN}} to {{HOURS_MAX}}. The price is the hourly rate times the hours. For example, a car for 3 hours on a weekday is 3 × ₹{{RATE_CAR_WEEKDAY}}.</li>
+      <li>The rate depends on the day your booking starts. It applies to every hour of that booking.</li>
+      <li>There is no booking fee, and nothing is added at checkout. What you see before you pay is what you pay.</li>
+    </ul>
+
+    <h2>Paying</h2>
+    <p>You pay online through Razorpay, with the payment methods shown at checkout. The price is the same whichever method you use.</p>
+    <p>For cancelling a booking and for refunds, see the <a href="/refunds">cancellation and refund policy</a>.</p>
+
+    <p class="updated">Last updated: 22 October 2026.</p>
