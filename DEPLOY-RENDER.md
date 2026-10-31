@@ -4,6 +4,8 @@ This guide takes you from the zip file on your computer to a real website with i
 
 **Render or a server?** Render is the easier road and costs about $7.25 a month, paid in US dollars by card. The other road, in `DEPLOY.md`, rents a plain server for about ₹500 to ₹700 a month and needs a little more patience. Both end in the same website. Pick one; you do not need both.
 
+**Want to try it for free first?** See “A free demo first”, after the table of steps. It costs nothing and uses Razorpay's test keys, but it forgets its bookings, so it is a demo and never a shop.
+
 **How long it takes:** about 1 to 2 hours for steps 1 to 7, most of it waiting. Going live with real money takes longer, because Razorpay has to approve your business first (step 8).
 
 **If someone else will do this for you:** give them the zip, this guide, and the logins for GitHub, Render, your domain seller and Razorpay.
@@ -27,6 +29,7 @@ A driver's phone --> your domain --> Render --------------------> your parking s
 |---|---|---|
 | Render: the site | $7 a month | the 0.5 CPU, 512 MB size. A lot of this size does not need more. |
 | Render: the disk | $0.25 a month | 1 GB. Bookings take very little room. |
+| Render: a free demo (optional) | $0 | `render-free.yaml`, for trying the site with test keys only. It sleeps when nobody visits and forgets its bookings. See “A free demo first”. |
 | GitHub | free | a private repository |
 | A domain name | about ₹500 to ₹1,500 a year | from any domain seller |
 | Razorpay | a fee on each payment | see Razorpay's pricing page. The driver pays exactly the parking price shown. |
@@ -34,7 +37,7 @@ A driver's phone --> your domain --> Render --------------------> your parking s
 
 These are the prices on Render's own pages on 24 October 2026; they change, so look at [render.com/pricing](https://render.com/pricing) before you pay. Render bills in **US dollars** to a card. In your bank's app, switch on international online payments for that card first. Render's pages do not say whether Indian GST is added; your first invoice shows it.
 
-**Render's free size cannot be used for this site.** It forgets every file whenever it restarts, which would erase your bookings, and it falls asleep when nobody visits. A site that takes money needs the paid size and a disk.
+**Render's free size cannot be used for a real site.** It forgets every file whenever it restarts, which would erase your bookings, and it falls asleep when nobody visits. A site that takes money needs the paid size and a disk. The free size is good for one thing: a demo with test keys (see “A free demo first”, after the table of steps).
 
 ## What to know before you start
 
@@ -81,6 +84,29 @@ Razorpay keeps two separate worlds. In **test mode** the bank window is a preten
 | 9 | Everyday care: updates, backups, if something breaks | as needed |
 | Extra | Let an AI answer in the chat (optional) | 15 min |
 
+## A free demo first (optional)
+
+Render has a free size, and the file `render-free.yaml` in your repository sets the site up on it. It costs nothing, so it is a good way to see your site working on the internet and to try a payment with Razorpay's **test keys** before you pay for anything. It is a **demo**, not a shop. These differences matter:
+
+| | Free demo (`render-free.yaml`) | Real site (`render.yaml`) |
+|---|---|---|
+| Price | $0 | about $7.25 a month |
+| When nobody visits | It goes to sleep after 15 minutes. The next visitor waits about a minute while it wakes up. | Always awake |
+| Bookings | **Erased** whenever the site sleeps, restarts or is updated (Render may also restart it at any time) | Kept on the disk |
+| Razorpay keys | **Test keys only** (`rzp_test_…`) | Test first, then live (step 8) |
+| Real customers and real money | **Never** | Yes, after step 8 |
+
+Follow steps 1 to 4, 6 and 7 as they are written, with these changes:
+
+1. **Step 1:** use test keys only, and skip the card unless Render asks for one. The demo itself costs nothing.
+2. **Step 3:** in item 4, type `render-free.yaml` in the box called **Blueprint Path**. Render then shows a web service called `parking-site-demo` with **no disk**. The nine boxes are the same ones, and every key you type is a **test** key.
+3. **Step 4:** the Setup check shows a **red message** saying that the bookings are not on the Render disk, and the log shows a **WARNING** about it. On the free demo that is expected, because the free size has no disk. Leave the setting `DATA_DIR` as it is: without it the site would look for a disk that the free size does not have, and might not start.
+4. **Step 6:** the webhook address is your `onrender.com` address, for example `https://parking-site-demo-x1y2.onrender.com/api/razorpay/webhook`. Open the site once first, so that it is awake when Razorpay looks.
+5. **Step 7:** skip item 6 (bookings surviving a restart). On the free demo they do **not** survive one, by design. Make your test booking soon after the site wakes up, and look at it in the dashboard straight away.
+6. **Skip** step 5 (your own address) and step 8 (real payments). The backups in step 9 do not apply either, because there is nothing worth backing up.
+
+**When you want real customers:** do not turn the demo into the real site. Create the real one from `render.yaml` (step 3, with **Blueprint Path** left as it is), and then delete the demo in Render (open the demo service, choose **Settings**, scroll to the bottom and press **Delete Web Service**), so that nobody finds it by mistake. Never put live keys (`rzp_live_…`) on the demo.
+
 ---
 
 ## Step 1. Get ready
@@ -126,8 +152,8 @@ Two files whose names start with a dot, `.gitignore` and `.env.example`, are not
 1. Go to <https://render.com> and press **Get Started**. Sign up **with GitHub**, which connects the two at once. Confirm your email if Render asks.
 2. In the Render Dashboard press **New**, then **Blueprint**. (A *Blueprint* is a file, `render.yaml`, that tells Render what to build. You already uploaded it.)
 3. If Render asks to connect GitHub, allow it to read **only the `parking-site` repository**. Then press **Connect** next to that repository.
-4. **Blueprint name:** `parking`. **Branch:** `main`. Leave **Blueprint Path** as it is.
-5. Render shows what it will create: a **web service** called `parking-site`, with a **1 GB disk** called `parking-data` attached to it. It also shows a box for each setting that `render.yaml` marks as private (`sync: false`). Fill them in:
+4. **Blueprint name:** `parking`. **Branch:** `main`. Leave **Blueprint Path** as it is. (For the free demo, type `render-free.yaml` there instead: see “A free demo first”.)
+5. Render shows what it will create: a **web service** called `parking-site`, with a **1 GB disk** called `parking-data` attached to it. (The free demo shows a web service called `parking-site-demo`, with no disk.) It also shows a box for each setting that `render.yaml` marks as private (`sync: false`). Fill them in:
 
    | Box | What to type |
    |---|---|
@@ -178,7 +204,7 @@ The site has a built-in check, made for exactly this moment.
 
 **Secure connection.** It should say **Yes**. If it says it does not see the connection as HTTPS although you opened the page with `https://`, the `TRUST_PROXY` number is too low (for example `0`): set it as above.
 
-**Where bookings are saved.** The folder should be `/var/data/test`, with a green line saying that it is on the Render disk. That is the folder the site chose by itself. If you see a red message instead, a setting named `DATA_DIR` is pointing somewhere outside the disk: delete that setting in Render's **Environment** page and choose **Save and deploy**. Bookings saved anywhere else are **lost every time the site restarts or is updated**.
+**Where bookings are saved.** The folder should be `/var/data/test`, with a green line saying that it is on the Render disk. That is the folder the site chose by itself. If you see a red message instead, a setting named `DATA_DIR` is pointing somewhere outside the disk: delete that setting in Render's **Environment** page and choose **Save and deploy**. Bookings saved anywhere else are **lost every time the site restarts or is updated**. (**On the free demo** the folder is `/tmp/bayfind-demo-data` and the red message is expected, because the free size has no disk. Leave `DATA_DIR` as it is there.)
 
 **Chat assistant.** It says how the chat window answers drivers: with built-in answers only, or with an AI as well. There is nothing to do here until you add the AI key (see “Optional extra” after step 9).
 
@@ -342,6 +368,8 @@ Settings live in Render, not in files. Open your service, choose **Environment**
 | Render says the build failed, and the log mentions `package-lock.json` | The file `package-lock.json` is missing from your repository. Upload it (step 2). |
 | Render says the build failed and names a Node version | Render no longer offers the version in `NODE_VERSION`. In `render.yaml` on GitHub change `24.22.1` to a newer 24 number, commit, and deploy again. |
 | Render says it does not know the size `0.5c-512mb` | In `render.yaml` on GitHub change `0.5c-512mb` to `starter`, commit, and press **Deploy Blueprint** again. |
+| Render refuses the free demo and mentions the region | In `render-free.yaml` on GitHub change `singapore` to `frankfurt` (or `oregon`), commit, and press **Deploy Blueprint** again. |
+| The free demo takes a minute to open, or the first payment is slow | The free size goes to sleep after 15 minutes without visitors, and waking it takes about a minute. Open the address once, wait, then try again. The real site on the paid size does not sleep. |
 | The deploy fails with "no open port" or the service keeps restarting | Open **Logs** and read the first red line. A missing or wrong setting is the usual cause. |
 | The pages show "Online booking is switched off" | The Razorpay keys are missing or empty in **Environment**. Both `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are needed. |
 | The dashboard says it is "switched off until OPERATOR_PASSWORD is set" | Set `OPERATOR_PASSWORD` in **Environment**. |
@@ -350,7 +378,7 @@ Settings live in Render, not in files. Open your service, choose **Environment**
 | The webhook calls show as failed in Razorpay | The site answers 404 when `RAZORPAY_WEBHOOK_SECRET` is empty and 400 when the secret does not match. Make sure the secret is the same text in Render and in Razorpay's webhook page, and that you are looking at the right mode: **test** webhooks go with test keys and **live** webhooks with live keys. A call that came while the site was updating is tried again by Razorpay by itself. |
 | A driver paid but has no booking | Wait a few minutes: the site re-checks unconfirmed payments about a minute after the hold ends. If there is still none, refund the payment in the Razorpay Dashboard. |
 | The dashboard says "Refund needed" | The message says why. Fix that, then press **Retry refund**. If the message says that the server restarted while the refund was being sent, just press **Retry refund**. That is safe: Razorpay refuses to refund the same payment in full twice, so if the first try did go through, the site finds that out, marks the booking as refunded, and nothing more is sent. |
-| The bookings disappeared after an update or a restart | Open the dashboard's **Setup check**. If it says the bookings are not on the Render disk, delete the `DATA_DIR` setting in **Environment**. If you changed keys, remember that test and live bookings are in different folders (see step 8c). Otherwise restore a disk snapshot (step 9, Backups). |
+| The bookings disappeared after an update or a restart | On the **free demo** this is normal: that size keeps no files. On the real site, open the dashboard's **Setup check**. If it says the bookings are not on the Render disk, delete the `DATA_DIR` setting in **Environment**. If you changed keys, remember that test and live bookings are in different folders (see step 8c). Otherwise restore a disk snapshot (step 9, Backups). |
 | Visitors see "Too many searches" or "Too many booking attempts" | `TRUST_PROXY` is probably too low. Run the **Setup check** (step 4). |
 | The chat window is gone, or has no **Ask us** button | `CHAT_ENABLED` is set to `off`. Delete it in **Environment** and choose **Save and deploy**. The dashboard never has the button. |
 | You added `ANTHROPIC_API_KEY` but the chat still says “Instant answers”, or the Setup check says “The AI is not answering” | Run the **Setup check** (step 4): its **Chat assistant** part says why. The usual causes: the key was copied in part or has a space or quotes around it (401); there is no credit or a payment problem on Anthropic's Billing page (402); `CHAT_MODEL` names a model that does not exist (404); a spend or rate limit on the Anthropic account was reached (429). Nothing is lost meanwhile: drivers get the built-in answers. Once the cause is fixed, the next question is answered by the AI again (a changed setting in **Environment** needs **Save and deploy**). |
@@ -418,4 +446,4 @@ For the person who looks after it:
 
 ## Where the facts in this guide come from
 
-Render: [Blueprint file reference](https://render.com/docs/blueprint-spec), [Persistent disks](https://render.com/docs/disks), [Deploys](https://render.com/docs/deploys), [Rollbacks](https://render.com/docs/rollbacks), [Custom domains](https://render.com/docs/custom-domains), [Health checks](https://render.com/docs/health-checks), [Pricing](https://render.com/pricing). Razorpay: [Webhooks](https://razorpay.com/docs/webhooks/setup-edit-payments/), [API keys](https://razorpay.com/docs/payments/dashboard/settings/api-keys/), [Business website details](https://razorpay.com/docs/payments/dashboard/account-settings/business-website-details/), [Capture and refund settings](https://razorpay.com/docs/payments/dashboard/account-settings/capture-refund/). Anthropic (the optional AI chat): [Pricing](https://platform.claude.com/docs/en/about-claude/pricing), and the Console pages for [API keys](https://platform.claude.com/settings/keys), [Billing](https://platform.claude.com/settings/billing) and [Workspaces](https://platform.claude.com/settings/workspaces). Screens and prices change; if a screen looks different from this guide, the idea is the same.
+Render: [Blueprint file reference](https://render.com/docs/blueprint-spec), [Persistent disks](https://render.com/docs/disks), [Deploys](https://render.com/docs/deploys), [Rollbacks](https://render.com/docs/rollbacks), [Custom domains](https://render.com/docs/custom-domains), [Health checks](https://render.com/docs/health-checks), [Pricing](https://render.com/pricing), [Free instances](https://render.com/docs/free). Razorpay: [Webhooks](https://razorpay.com/docs/webhooks/setup-edit-payments/), [API keys](https://razorpay.com/docs/payments/dashboard/settings/api-keys/), [Business website details](https://razorpay.com/docs/payments/dashboard/account-settings/business-website-details/), [Capture and refund settings](https://razorpay.com/docs/payments/dashboard/account-settings/capture-refund/). Anthropic (the optional AI chat): [Pricing](https://platform.claude.com/docs/en/about-claude/pricing), and the Console pages for [API keys](https://platform.claude.com/settings/keys), [Billing](https://platform.claude.com/settings/billing) and [Workspaces](https://platform.claude.com/settings/workspaces). Screens and prices change; if a screen looks different from this guide, the idea is the same.

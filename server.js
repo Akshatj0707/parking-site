@@ -95,6 +95,7 @@ const server = app.listen(config.port, config.host, () => {
   if (config.onRender && config.dataOnRenderDisk === false) {
     lines.push(`  WARNING     That folder is not on the Render disk (${RENDER_DISK_PATH}), so every booking is lost the next time the site restarts or is updated.`);
     lines.push(`              Remove the DATA_DIR setting in Render, or point it at a folder inside ${RENDER_DISK_PATH}.`);
+    lines.push('              Exception: the free demo (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only, never for real customers.');
   }
   lines.push('');
   console.log(lines.join('\n'));

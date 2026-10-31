@@ -187,7 +187,7 @@ test('the dashboard page has the setup check panel', async (t) => {
 
 // A very small reader for the plain YAML that render.yaml uses: nested maps, lists of maps, "key: value" lines, quotes
 // and comments. (Node has no YAML reader built in, and this site needs no other packages.)
-function readYaml(text) {
+function readYaml(text, name = 'render.yaml') {
   const rows = [];
   for (const raw of text.split('\n')) {
     const line = raw.replace(/\s+$/, '');
@@ -215,7 +215,7 @@ function readYaml(text) {
     const map = {};
     while (at < rows.length && rows[at].indent === indent && !rows[at].text.startsWith('- ')) {
       const m = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(rows[at].text);
-      assert.ok(m, `render.yaml has a line this test does not understand: ${rows[at].text}`);
+      assert.ok(m, `${name} has a line this test does not understand: ${rows[at].text}`);
       at += 1;
       if (m[2] !== '') map[m[1]] = scalar(m[2]);
       else if (at < rows.length && rows[at].indent > indent) map[m[1]] = block(rows[at].indent);
@@ -224,7 +224,7 @@ function readYaml(text) {
     return map;
   }
   const result = block(rows[0].indent);
-  assert.equal(at, rows.length, 'render.yaml was not read to the end');
+  assert.equal(at, rows.length, `${name} was not read to the end`);
   return result;
 }
 
@@ -305,4 +305,70 @@ test('the Render guide mentions every box Render asks for', () => {
     if (sync === false) assert.ok(guide.includes(key), `DEPLOY-RENDER.md explains ${key}`);
   }
   for (const word of ['render.yaml', '/var/data', 'TRUST_PROXY', 'Setup check', '/api/razorpay/webhook']) assert.ok(guide.includes(word), `the guide mentions ${word}`);
+});
+
+// ===== render-free.yaml: the free demo =====================================================================
+
+const freeBlueprint = () => readYaml(read('render-free.yaml'), 'render-free.yaml');
+const varsOf = (doc) => Object.fromEntries(doc.services[0].envVars.map((v) => [v.key, v]));
+
+test('render-free.yaml runs the same site on Render\'s free size, with no disk', () => {
+  const doc = freeBlueprint();
+  assert.equal(doc.services.length, 1);
+  const free = doc.services[0];
+  const paid = blueprint().services[0];
+
+  assert.equal(free.plan, 'free');
+  assert.ok(!('disk' in free), 'the free size cannot have a disk');
+  // How the site is built, started and checked is the same as in render.yaml.
+  for (const key of ['type', 'runtime', 'buildCommand', 'startCommand', 'healthCheckPath', 'autoDeployTrigger']) {
+    assert.equal(free[key], paid[key], `${key} is the same as in render.yaml`);
+  }
+  assert.notEqual(free.name, paid.name, 'the demo cannot be mistaken for the real site in the same Render account');
+});
+
+test('render-free.yaml asks for the same boxes as render.yaml, and keeps secrets out', () => {
+  assert.doesNotMatch(read('render-free.yaml'), /rzp_(test|live)_[A-Za-z0-9]{6,}/, 'no Razorpay key in the file');
+  const free = varsOf(freeBlueprint());
+  const paid = varsOf(blueprint());
+  const boxes = (vars) => Object.values(vars).filter((v) => v.sync === false).map((v) => v.key);
+
+  assert.deepEqual(boxes(free), boxes(paid), 'the guide\'s list of boxes fits both files');
+  assert.equal(free.NODE_ENV.value, 'production');
+  assert.equal(free.NODE_VERSION.value, paid.NODE_VERSION.value);
+  for (const v of Object.values(free)) assert.equal('value' in v, v.sync !== false, `${v.key} has a value or a form box`);
+  for (const key of ['TRUST_PROXY', 'PORT', 'HOST']) assert.ok(!(key in free), `${key} is chosen by the site on Render`);
+});
+
+test('render-free.yaml saves bookings in a temporary folder, and the site says plainly that they do not last', () => {
+  const { DATA_DIR } = varsOf(freeBlueprint());
+  assert.ok(DATA_DIR && DATA_DIR.value, 'DATA_DIR is set: with no disk, the site must not look for /var/data');
+  const dir = DATA_DIR.value;
+  assert.ok(path.isAbsolute(dir) && dir.startsWith('/tmp/'), 'a folder that every Render service may write to');
+
+  const c = loadConfig({ RENDER: 'true', NODE_ENV: 'production', DATA_DIR: dir, RAZORPAY_KEY_ID: 'rzp_test_x', RAZORPAY_KEY_SECRET: 's' });
+  assert.equal(c.dataDir, dir);
+  assert.equal(c.dataOnRenderDisk, false, 'the site knows these bookings are temporary, and warns about it');
+  assert.equal(c.trustProxy, 1);
+  assert.equal(c.host, '0.0.0.0');
+  // The warning in the dashboard's Setup check explains that this is expected on the free size.
+  assert.match(read('public/js/dashboard.js'), /Exception: the free demo \(render-free\.yaml\) has no disk, so there this is expected: leave DATA_DIR as it is/);
+});
+
+test('every setting in render-free.yaml is one the site reads, and is in .env.example', () => {
+  const code = read('src/config.js');
+  const example = read('.env.example');
+  for (const { key } of freeBlueprint().services[0].envVars) {
+    if (key === 'NODE_VERSION') continue; // read by Render itself
+    assert.ok(code.includes(`env.${key}`), `src/config.js reads ${key}`);
+    assert.ok(new RegExp(`^#?\\s*${key}=`, 'm').test(example), `.env.example describes ${key}`);
+  }
+});
+
+test('the guide and the README explain the free demo and what it cannot do', () => {
+  const guide = read('DEPLOY-RENDER.md');
+  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys']) {
+    assert.ok(guide.includes(word), `the guide mentions ${word}`);
+  }
+  assert.ok(read('README.md').includes('render-free.yaml'), 'the README lists render-free.yaml');
 });

@@ -112,6 +112,7 @@ test('on Render, the start-up message warns when bookings are not on the Render 
   assert.match(server.output(), /WARNING\s+That folder is not on the Render disk \(\/var\/data\)/);
   assert.match(server.output(), /lost the next time the site restarts or is updated/);
   assert.match(server.output(), /Remove the DATA_DIR setting in Render/);
+  assert.match(server.output(), /Exception: the free demo \(render-free\.yaml\) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only/, 'it says that the free demo is the one case where this is expected, and is for test keys only');
   assert.match(server.output(), /Chat\s+Instant answers, no AI\. Add ANTHROPIC_API_KEY under Environment in Render/, 'the chat hint names Render\'s Environment page, not a .env file');
   // The site still runs: the warning is advice, not a stop.
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/healthz`)).status, 200);

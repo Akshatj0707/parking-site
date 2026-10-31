@@ -415,7 +415,7 @@
     const s = r.storage;
     const warn =
       s.onRender && s.onDisk === false
-        ? h('p', { class: 'msg err', role: 'alert' }, h('b', null, 'Bookings are not on the Render disk. '), `They are lost every time the site restarts or is updated. Remove the DATA_DIR setting in Render, or point it at a folder inside ${s.diskPath}.`)
+        ? h('p', { class: 'msg err', role: 'alert' }, h('b', null, 'Bookings are not on the Render disk. '), `They are lost every time the site restarts or is updated. Remove the DATA_DIR setting in Render, or point it at a folder inside ${s.diskPath}. Exception: the free demo (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only, never for real customers.`)
         : s.onRender
           ? h('p', { class: 'msg ok' }, `Yes. This folder is on the Render disk (${s.diskPath}), so bookings stay when the site restarts or is updated.`)
           : null;
