@@ -79,7 +79,7 @@ test('only the public folders are served: no source, settings or data', async (t
     '/index.html', '/book.html', '/lookup.html', '/dashboard.html', '/shared.js',
     '/src/config.js', '/src/bookings.js', '/server.js', '/package.json', '/package-lock.json', '/.env', '/.env.example',
     '/data/bookings.json', '/test/helpers.js', '/node_modules/express/package.json', '/public/index.html', '/README.md',
-    '/DEPLOY.md', '/DEPLOY-RENDER.md', '/render.yaml', '/render-free.yaml', '/deploy/setup.sh', '/.gitignore',
+    '/DEPLOY.md', '/DEPLOY-RENDER.md', '/render.yaml', '/render-free.yaml', '/render-paid.yaml', '/deploy/setup.sh', '/.gitignore',
   ];
   for (const url of private404) {
     const res = await site.get(url);

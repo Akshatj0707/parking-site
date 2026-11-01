@@ -98,8 +98,8 @@ Render has a free size, and the file `render-free.yaml` in your repository sets 
 
 Follow steps 1 to 4, 6 and 7 as they are written, with these changes:
 
-1. **Step 1:** use test keys only, and skip the card unless Render asks for one. The demo itself costs nothing.
-2. **Step 3:** in item 4, type `render-free.yaml` in the box called **Blueprint Path**. Render then shows a web service called `parking-site-demo` with **no disk**. The nine boxes are the same ones, and every key you type is a **test** key.
+1. **Step 1:** use test keys only, skip item 7 (your business details), and skip the card unless Render asks for one. The demo itself costs nothing.
+2. **Step 3:** in item 4, type `render-free.yaml` in the box called **Blueprint Path**. Render then shows a web service called `parking-site-demo` with **no disk**, and asks for only **four** boxes: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` and `OPERATOR_PASSWORD`, the first four rows of the table there. Every key you type is a **test** key. The site name and business details are left out: the demo shows the site's own name, Bayfind, and tells visitors to ask at the parking office. To use your own, add `SITE_NAME`, `BUSINESS_NAME`, `SUPPORT_EMAIL`, `SUPPORT_PHONE` and `BUSINESS_ADDRESS` under **Environment** in Render and choose **Save and deploy**.
 3. **Step 4:** the Setup check shows a **red message** saying that the bookings are not on the Render disk, and the log shows a **WARNING** about it. On the free demo that is expected, because the free size has no disk. Leave the setting `DATA_DIR` as it is: without it the site would look for a disk that the free size does not have, and might not start.
 4. **Step 6:** the webhook address is your `onrender.com` address, for example `https://parking-site-demo-x1y2.onrender.com/api/razorpay/webhook`. Open the site once first, so that it is awake when Razorpay looks.
 5. **Step 7:** skip item 6 (bookings surviving a restart). On the free demo they do **not** survive one, by design. Make your test booking soon after the site wakes up, and look at it in the dashboard straight away.
@@ -153,7 +153,7 @@ Two files whose names start with a dot, `.gitignore` and `.env.example`, are not
 2. In the Render Dashboard press **New**, then **Blueprint**. (A *Blueprint* is a file, `render.yaml`, that tells Render what to build. You already uploaded it.)
 3. If Render asks to connect GitHub, allow it to read **only the `parking-site` repository**. Then press **Connect** next to that repository.
 4. **Blueprint name:** `parking`. **Branch:** `main`. Leave **Blueprint Path** as it is. (For the free demo, type `render-free.yaml` there instead: see “A free demo first”.)
-5. Render shows what it will create: a **web service** called `parking-site`, with a **1 GB disk** called `parking-data` attached to it. (The free demo shows a web service called `parking-site-demo`, with no disk.) It also shows a box for each setting that `render.yaml` marks as private (`sync: false`). Fill them in:
+5. Render shows what it will create: a **web service** called `parking-site`, with a **1 GB disk** called `parking-data` attached to it. (The free demo shows a web service called `parking-site-demo`, with no disk, and asks for only the first four boxes.) It also shows a box for each setting that `render.yaml` marks as private (`sync: false`). Fill them in:
 
    | Box | What to type |
    |---|---|

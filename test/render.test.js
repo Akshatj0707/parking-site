@@ -228,7 +228,11 @@ function readYaml(text, name = 'render.yaml') {
   return result;
 }
 
-const blueprint = () => readYaml(read('render.yaml'));
+// Which file holds the paid blueprint. On the main branch it is render.yaml. The branch free-demo exists so that one Render
+// link can start the free demo (that link can only read a file named render.yaml): there render.yaml is the free demo,
+// and the paid blueprint is kept as render-paid.yaml. These tests work on both branches.
+const PAID_FILE = fs.existsSync(path.join(ROOT, 'render-paid.yaml')) ? 'render-paid.yaml' : 'render.yaml';
+const blueprint = () => readYaml(read(PAID_FILE), PAID_FILE);
 
 test('render.yaml describes one web service that this site can really run as', () => {
   const doc = blueprint();
@@ -265,7 +269,7 @@ test('render.yaml mounts the disk where the site saves its bookings', () => {
 });
 
 test('render.yaml keeps secrets out of the file and leaves the self-chosen settings out', () => {
-  const text = read('render.yaml');
+  const text = read(PAID_FILE);
   assert.doesNotMatch(text, /rzp_(test|live)_[A-Za-z0-9]{6,}/, 'no Razorpay key in the file');
   const vars = Object.fromEntries(blueprint().services[0].envVars.map((v) => [v.key, v]));
 
@@ -327,13 +331,14 @@ test('render-free.yaml runs the same site on Render\'s free size, with no disk',
   assert.notEqual(free.name, paid.name, 'the demo cannot be mistaken for the real site in the same Render account');
 });
 
-test('render-free.yaml asks for the same boxes as render.yaml, and keeps secrets out', () => {
+test('render-free.yaml asks for only the four secrets, and keeps them out of the file', () => {
   assert.doesNotMatch(read('render-free.yaml'), /rzp_(test|live)_[A-Za-z0-9]{6,}/, 'no Razorpay key in the file');
   const free = varsOf(freeBlueprint());
   const paid = varsOf(blueprint());
   const boxes = (vars) => Object.values(vars).filter((v) => v.sync === false).map((v) => v.key);
 
-  assert.deepEqual(boxes(free), boxes(paid), 'the guide\'s list of boxes fits both files');
+  assert.deepEqual(boxes(free), ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'OPERATOR_PASSWORD'], 'the demo asks for the keys and passwords, nothing else');
+  for (const key of boxes(free)) assert.ok(boxes(paid).includes(key), `${key} is a box in the paid blueprint too, so the guide explains it`);
   assert.equal(free.NODE_ENV.value, 'production');
   assert.equal(free.NODE_VERSION.value, paid.NODE_VERSION.value);
   for (const v of Object.values(free)) assert.equal('value' in v, v.sync !== false, `${v.key} has a value or a form box`);
@@ -371,4 +376,15 @@ test('the guide and the README explain the free demo and what it cannot do', () 
     assert.ok(guide.includes(word), `the guide mentions ${word}`);
   }
   assert.ok(read('README.md').includes('render-free.yaml'), 'the README lists render-free.yaml');
+});
+
+test('render.yaml is the paid blueprint, except on the free-demo branch where it is the free demo', () => {
+  const doc = readYaml(read('render.yaml'));
+  if (PAID_FILE === 'render.yaml') {
+    assert.notEqual(doc.services[0].plan, 'free', 'on the main branch render.yaml is the paid blueprint');
+    return;
+  }
+  // The branch free-demo: a link like https://render.com/deploy?repo=<repository>/tree/free-demo reads render.yaml from it.
+  assert.deepEqual(doc.services, freeBlueprint().services, 'render.yaml is the same blueprint as render-free.yaml');
+  assert.notEqual(blueprint().services[0].plan, 'free', 'the paid blueprint is kept as render-paid.yaml');
 });
