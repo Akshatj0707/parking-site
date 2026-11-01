@@ -1,3 +1,5 @@
+> **This is the `free-demo` branch.** It exists only so that one link can start the free demo on Render: here `render.yaml` is the free demo, and the paid blueprint is `render-paid.yaml`. For the real site use the `main` branch.
+
 # Bayfind Smart Parking
 
 A parking website where drivers book a bay by **vehicle number** and pay online with **Razorpay**.

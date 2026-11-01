@@ -1,37 +1,52 @@
-# Render Blueprint for this website. Render reads this file when you choose New > Blueprint (the steps are in
-# DEPLOY-RENDER.md). It sets up one web service that runs the site, and a small disk where bookings are saved.
+# THIS FILE IS THE FREE DEMO, saved under the name that Render's deploy link looks for. This branch (free-demo) exists
+# only so that ONE link can start the free demo, because the link can only read a file named render.yaml:
+#   https://render.com/deploy?repo=https://github.com/YOUR-GITHUB-NAME/parking-site/tree/free-demo
+# On the main branch render.yaml is the PAID blueprint and this same text is render-free.yaml. On this branch the paid
+# blueprint is kept as render-paid.yaml. The services below must stay the same as in render-free.yaml (a test checks it).
+# To bring this branch up to date: merge main into it, keep this file when render.yaml conflicts, and copy any change of
+# main's render.yaml into render-paid.yaml.
+#
+# Render Blueprint for a FREE DEMO of this website. Use it to show the site and to try Razorpay TEST payments at no cost.
+# It is render.yaml with these differences:
+#   - plan: free. No charge, but Render puts the site to sleep after 15 minutes without visitors (waking it takes about
+#     a minute) and may restart it at any time.
+#   - No disk, because Render's free size cannot have one. Bookings are kept in a temporary folder (DATA_DIR below) and
+#     are LOST whenever the site sleeps, restarts or is updated.
+#   - So it is for demos only: use Razorpay TEST keys (rzp_test_...), never live keys, and take no real customers.
+#     For a real site use render.yaml (about $7 a month, plus $0.25 for the disk).
+#   - Only four boxes are asked for, the Razorpay keys, the webhook secret and the dashboard password. The business
+#     details (SITE_NAME, BUSINESS_NAME, SUPPORT_EMAIL, SUPPORT_PHONE, BUSINESS_ADDRESS) are left out: the demo uses the
+#     site's own defaults. To use your own, add them under Environment in the Render dashboard.
+#
+# To use it, choose New > Blueprint in Render and set "Blueprint Path" to render-free.yaml (the steps are in
+# DEPLOY-RENDER.md, under "A free demo first").
 #
 # Nothing secret belongs in this file. Every entry marked "sync: false" is a box that Render shows you when you create
 # the site: you type the value there, and Render keeps it private.
 #
-# A few settings are left out on purpose, because on Render the site chooses them by itself:
-#   TRUST_PROXY   1 (one proxy sits in front of the site). Check it on the dashboard, under "Setup check".
-#   DATA_DIR      /var/data/test while Razorpay test keys are in use, /var/data/live once live keys are.
-#                 That keeps test bookings apart from real ones, with nothing for you to do.
-#   PORT          Render supplies it.
-# To change a price or another setting later, add it under Environment in the Render dashboard
-# (every setting is listed in .env.example).
+# TRUST_PROXY and PORT are left out on purpose, because on Render the site chooses them by itself. To change a price or
+# another setting later, add it under Environment in the Render dashboard (every setting is listed in .env.example).
 
 services:
   - type: web
-    name: parking-site
+    name: parking-site-demo
     runtime: node
     region: singapore            # the nearest to India. The others: oregon, ohio, virginia, frankfurt
-    plan: 0.5c-512mb             # the $7 a month size. The free size cannot keep files, so it cannot hold bookings.
+    plan: free                   # no disk is possible on this size
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
-    autoDeployTrigger: "off"     # an update goes live only when you press Deploy. "commit" would publish every upload at once.
-    disk:
-      name: parking-data
-      mountPath: /var/data       # must stay /var/data: the site saves its bookings there (see src/config.js)
-      sizeGB: 1
+    autoDeployTrigger: "off"     # an update goes live only when you press Deploy
     envVars:
       - key: NODE_VERSION
         value: "24.22.1"
       - key: NODE_ENV
         value: production
-      # Razorpay. Test keys start with rzp_test_ and live keys with rzp_live_. The webhook secret is a long text you make up.
+      # There is no disk to save to, so bookings go in a temporary folder. The site shows a red "not on the Render disk"
+      # message about it, which is expected here: the folder is emptied whenever the site sleeps, restarts or is updated.
+      - key: DATA_DIR
+        value: /tmp/bayfind-demo-data
+      # Razorpay: use TEST keys (they start with rzp_test_). The webhook secret is a long text you make up.
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
@@ -40,15 +55,4 @@ services:
         sync: false
       # The password for /dashboard. The user name is "operator".
       - key: OPERATOR_PASSWORD
-        sync: false
-      # Your business, as shown on the website and on the Contact, Terms and Privacy pages.
-      - key: SITE_NAME
-        sync: false
-      - key: BUSINESS_NAME
-        sync: false
-      - key: SUPPORT_EMAIL
-        sync: false
-      - key: SUPPORT_PHONE
-        sync: false
-      - key: BUSINESS_ADDRESS
         sync: false
