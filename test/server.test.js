@@ -38,7 +38,7 @@ async function start(t, dataDir, extraEnv = {}) {
   const port = await freePort();
   const blank = Object.fromEntries(
     ['NODE_ENV', 'HOST', 'TRUST_PROXY', 'RENDER', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'OPERATOR_USER', 'OPERATOR_PASSWORD', 'DISABLE_CSP',
-      'ANTHROPIC_API_KEY', 'CHAT_ENABLED', 'CHAT_MODEL', 'CHAT_DAILY_LIMIT'].map((key) => [key, ''])
+      'DEMO_PAYMENTS', 'ANTHROPIC_API_KEY', 'CHAT_ENABLED', 'CHAT_MODEL', 'CHAT_DAILY_LIMIT'].map((key) => [key, ''])
   );
   const child = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
@@ -116,6 +116,30 @@ test('on Render, the start-up message warns when bookings are not on the Render 
   assert.match(server.output(), /Chat\s+Instant answers, no AI\. Add ANTHROPIC_API_KEY under Environment in Render/, 'the chat hint names Render\'s Environment page, not a .env file');
   // The site still runs: the warning is advice, not a stop.
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/healthz`)).status, 200);
+});
+
+test('the free demo says that payment is simulated, and where to add the Razorpay keys', async (t) => {
+  const password = 'made-up-by-render-0123456789abcdef';
+  const demo = await start(t, tempDir(t), { RENDER: 'true', NODE_ENV: 'production', DEMO_PAYMENTS: 'on', OPERATOR_PASSWORD: password });
+  const out = demo.output();
+  assert.match(out, /Payments\s+DEMO MODE: no Razorpay keys found, so payment is simulated\./);
+  assert.match(out, /Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET \(test keys\) under Environment in Render to try the real checkout\./);
+  assert.match(out, /DEMO_PAYMENTS is on: that is for a public demo only, never for real customers\./);
+  assert.match(out, /Dashboard\s+port \d+\/dashboard\s+\(asks for the operator password\)/);
+  assert.doesNotMatch(out, /Payments\s+OFF/);
+  assert.ok(!out.includes(password), 'the dashboard password is never printed');
+  const config = await (await fetch(`http://127.0.0.1:${demo.port}/api/config`)).json();
+  assert.deepEqual(config.payments, { mode: 'demo', keyId: null, test: true });
+
+  // Without the setting, a site in production with no keys still switches booking off.
+  const off = await start(t, tempDir(t), { RENDER: 'true', NODE_ENV: 'production', OPERATOR_PASSWORD: password });
+  assert.match(off.output(), /Payments\s+OFF: production mode needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET/);
+  assert.doesNotMatch(off.output(), /DEMO_PAYMENTS is on/);
+
+  // On your own computer the demo hint points to the .env file, and the public-demo note is not shown.
+  const local = await start(t, tempDir(t), { DEMO_PAYMENTS: 'on' });
+  assert.match(local.output(), /Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to \.env to try the real checkout\./);
+  assert.doesNotMatch(local.output(), /DEMO_PAYMENTS is on/);
 });
 
 test('on start-up, a refund that the last shutdown cut off is marked, and the log says so', async (t) => {

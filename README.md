@@ -182,6 +182,7 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 |---|---|---|
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your Razorpay keys. Leave both empty for demo mode. | empty |
 | `RAZORPAY_WEBHOOK_SECRET` | Secret for the optional webhook (section 6). | empty |
+| `DEMO_PAYMENTS` | For a public **demo** only (the free Render demo sets it). A site in production with no Razorpay keys normally switches booking off. With this set to `on` it simulates the payment instead, so everything can be tried at once. Once both Razorpay keys are set it does nothing. Never use it for real customers. | not set |
 | `OPERATOR_USER`, `OPERATOR_PASSWORD` | Log-in for `/dashboard`. | `operator`, empty |
 | `SITE_NAME` | The name shown on every page (up to 40 characters). | `Bayfind` |
 | `SUPPORT_EMAIL` | Shown in the footer and in messages that say “contact us”. Empty means “ask at the parking office”. | empty |
@@ -240,7 +241,7 @@ Razorpay cannot reach `localhost`, so set this up after the site is online:
 
 **The easy way: a small server with automatic HTTPS.** [`DEPLOY.md`](DEPLOY.md) is a step-by-step guide for someone who has never run a server. It uses an ordinary Ubuntu or Debian server and the scripts in the `deploy/` folder. One command installs Node.js and the Caddy web server (which gets and renews the HTTPS certificate by itself), starts the site so that it comes back after a crash or a reboot, opens only the ports the site needs, and makes a copy of your bookings every night. Updating later means uploading the new zip and running one script, and a version that does not start is rolled back by itself.
 
-**Render (render.com): no server to look after.** [`DEPLOY-RENDER.md`](DEPLOY-RENDER.md) is a step-by-step guide that goes as far as real Razorpay payments. You put the folder on GitHub, and the file `render.yaml` tells Render to build the site, keep a small disk for the bookings and check `/healthz`. Render gives the HTTPS padlock by itself. It needs the paid size (about $7 a month, plus $0.25 for the disk): the free size forgets all files at every restart. For a no-cost demo with Razorpay test keys only, `render-free.yaml` sets the site up on the free size instead. That size goes to sleep after 15 minutes without visitors and forgets every booking whenever it sleeps, restarts or is updated, so it is never for real customers (see “A free demo first” in `DEPLOY-RENDER.md`). On Render the site chooses two settings by itself: `TRUST_PROXY` is `1`, and the bookings go in the disk's `test` folder while Razorpay test keys are in use and in its `live` folder once live keys are, so test bookings never mix with real ones. The dashboard's **Setup check** shows the proxy number the host really needs and whether the bookings are on the disk.
+**Render (render.com): no server to look after.** [`DEPLOY-RENDER.md`](DEPLOY-RENDER.md) is a step-by-step guide that goes as far as real Razorpay payments. You put the folder on GitHub, and the file `render.yaml` tells Render to build the site, keep a small disk for the bookings and check `/healthz`. Render gives the HTTPS padlock by itself. It needs the paid size (about $7 a month, plus $0.25 for the disk): the free size forgets all files at every restart. For a no-cost demo, `render-free.yaml` sets the site up on the free size instead, with nothing to type: Render makes up the dashboard password itself, and the payment is simulated (`DEMO_PAYMENTS`) until you add Razorpay test keys. That size goes to sleep after 15 minutes without visitors and forgets every booking whenever it sleeps, restarts or is updated, so it is never for real customers (see “A free demo first” in `DEPLOY-RENDER.md`). On Render the site chooses two settings by itself: `TRUST_PROXY` is `1`, and the bookings go in the disk's `test` folder while Razorpay test keys are in use and in its `live` folder once live keys are, so test bookings never mix with real ones. The dashboard's **Setup check** shows the proxy number the host really needs and whether the bookings are on the disk.
 
 **Any other host.** You need a host that
 
@@ -331,7 +332,7 @@ public/          what the browser receives: the HTML pages, css/, js/, img/ and 
 deploy/          the scripts and files that put the site on a server (DEPLOY.md explains them)
 test/            the automated checks
 render.yaml      tells Render (render.com) how to run the site (DEPLOY-RENDER.md explains it)
-render-free.yaml the same for Render's free size: a demo with test keys only, no disk, bookings not kept
+render-free.yaml the same for Render's free size: a demo with nothing to type, no disk, bookings not kept
 DEPLOY.md        the step-by-step guide to putting the site on a server you rent
 DEPLOY-RENDER.md the step-by-step guide to putting the site on Render, with real Razorpay payments
 data/            made on first run: bookings.json (back this up)

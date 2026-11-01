@@ -58,11 +58,11 @@ class BookingService {
   }
 
   // razorpay    keys are set: real Razorpay checkout (test keys give test mode, live keys take real money)
-  // demo        no keys and not in production: the whole flow works but payment is simulated
+  // demo        no keys and not in production, or DEMO_PAYMENTS is on (a public demo): the whole flow works but payment is simulated
   // unavailable no keys in production: booking is switched off rather than pretending to take money
   get paymentMode() {
     if (this.config.razorpay.configured) return 'razorpay';
-    return this.config.production ? 'unavailable' : 'demo';
+    return this.config.production && !this.config.demoPayments ? 'unavailable' : 'demo';
   }
 
   // Writing to disk can fail (disk full, folder locked). After a payment the in-memory state is still the truth,

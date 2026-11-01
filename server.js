@@ -65,7 +65,12 @@ const server = app.listen(config.port, config.host, () => {
       : '  Payments    TEST MODE: Razorpay checkout with test keys, no real money moves');
   } else if (mode === 'demo') {
     lines.push('  Payments    DEMO MODE: no Razorpay keys found, so payment is simulated.');
-    lines.push('              Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env to try the real checkout.');
+    lines.push(config.onRender
+      ? '              Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (test keys) under Environment in Render to try the real checkout.'
+      : '              Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env to try the real checkout.');
+    if (config.production && config.demoPayments) {
+      lines.push('              DEMO_PAYMENTS is on: that is for a public demo only, never for real customers.');
+    }
   } else {
     lines.push('  Payments    OFF: production mode needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET, so booking is disabled.');
   }
