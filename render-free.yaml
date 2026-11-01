@@ -1,20 +1,21 @@
-# Render Blueprint for a FREE DEMO of this website. Use it to show the site and to try Razorpay TEST payments at no cost.
+# Render Blueprint for a FREE DEMO of this website. Use it to show the site on the internet at no cost, with nothing to type.
 # It is render.yaml with these differences:
 #   - plan: free. No charge, but Render puts the site to sleep after 15 minutes without visitors (waking it takes about
 #     a minute) and may restart it at any time.
 #   - No disk, because Render's free size cannot have one. Bookings are kept in a temporary folder (DATA_DIR below) and
 #     are LOST whenever the site sleeps, restarts or is updated.
-#   - So it is for demos only: use Razorpay TEST keys (rzp_test_...), never live keys, and take no real customers.
+#   - So it is for demos only: never live Razorpay keys (rzp_live_...) and no real customers.
 #     For a real site use render.yaml (about $7 a month, plus $0.25 for the disk).
-#   - Only four boxes are asked for, the Razorpay keys, the webhook secret and the dashboard password. The business
-#     details (SITE_NAME, BUSINESS_NAME, SUPPORT_EMAIL, SUPPORT_PHONE, BUSINESS_ADDRESS) are left out: the demo uses the
-#     site's own defaults. To use your own, add them under Environment in the Render dashboard.
+#   - No boxes to fill in when it is created. Render makes up the dashboard password itself (OPERATOR_PASSWORD). With no
+#     Razorpay keys the site simulates payment (DEMO_PAYMENTS), so everything can be tried at once. To get Razorpay's real
+#     test window, add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (TEST keys, rzp_test_...) under Environment in the Render
+#     dashboard. The webhook secret (RAZORPAY_WEBHOOK_SECRET) and the business details (SITE_NAME, BUSINESS_NAME,
+#     SUPPORT_EMAIL, SUPPORT_PHONE, BUSINESS_ADDRESS) can be added there too.
 #
 # To use it, choose New > Blueprint in Render and set "Blueprint Path" to render-free.yaml (the steps are in
 # DEPLOY-RENDER.md, under "A free demo first").
 #
-# Nothing secret belongs in this file. Every entry marked "sync: false" is a box that Render shows you when you create
-# the site: you type the value there, and Render keeps it private.
+# Nothing secret belongs in this file.
 #
 # TRUST_PROXY and PORT are left out on purpose, because on Render the site chooses them by itself. To change a price or
 # another setting later, add it under Environment in the Render dashboard (every setting is listed in .env.example).
@@ -38,13 +39,11 @@ services:
       # message about it, which is expected here: the folder is emptied whenever the site sleeps, restarts or is updated.
       - key: DATA_DIR
         value: /tmp/bayfind-demo-data
-      # Razorpay: use TEST keys (they start with rzp_test_). The webhook secret is a long text you make up.
-      - key: RAZORPAY_KEY_ID
-        sync: false
-      - key: RAZORPAY_KEY_SECRET
-        sync: false
-      - key: RAZORPAY_WEBHOOK_SECRET
-        sync: false
-      # The password for /dashboard. The user name is "operator".
+      # Without Razorpay keys a site in production switches booking off. For this demo the payment is simulated instead,
+      # so the whole site works at once. When both Razorpay keys are added, the real Razorpay checkout takes over.
+      - key: DEMO_PAYMENTS
+        value: "on"
+      # The password for /dashboard (the user name is "operator"). Render makes one up. To see it, or to put in one of
+      # your own, open the service in Render and choose Environment.
       - key: OPERATOR_PASSWORD
-        sync: false
+        generateValue: true

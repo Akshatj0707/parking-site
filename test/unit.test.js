@@ -132,7 +132,16 @@ test('default settings', () => {
   assert.equal(c.razorpay.configured, false);
   assert.equal(c.razorpay.live, false);
   assert.equal(c.disableCsp, false);
+  assert.equal(c.demoPayments, false);
   assert.equal(c.operator.password, '');
+});
+
+test('DEMO_PAYMENTS is on only for a clear yes, and only changes what happens with no Razorpay keys', () => {
+  for (const yes of ['1', 'true', 'TRUE', 'yes', 'on', 'On', ' on ']) assert.equal(loadConfig({ DEMO_PAYMENTS: yes }).demoPayments, true, JSON.stringify(yes));
+  for (const no of [undefined, '', '   ', '0', 'false', 'no', 'off', 'maybe', 'onn']) assert.equal(loadConfig({ DEMO_PAYMENTS: no }).demoPayments, false, JSON.stringify(no));
+  // It is read as a setting of its own: nothing else switches it on.
+  assert.equal(loadConfig({ NODE_ENV: 'production', RENDER: 'true' }).demoPayments, false);
+  assert.equal(loadConfig({ NODE_ENV: 'production', RENDER: 'true', DEMO_PAYMENTS: 'on' }).razorpay.configured, false, 'it does not pretend that Razorpay is set up');
 });
 
 test('settings come from the environment and bad values fall back', () => {

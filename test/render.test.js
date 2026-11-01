@@ -5,11 +5,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const { loadConfig, RENDER_DISK_PATH } = require('../src/config');
-const { makeSite, basic, KEY_SECRET, WEBHOOK_SECRET } = require('./helpers');
+const { makeSite, bookAndPay, car, basic, KEY_SECRET, WEBHOOK_SECRET } = require('./helpers');
 
 const ROOT = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -331,18 +332,71 @@ test('render-free.yaml runs the same site on Render\'s free size, with no disk',
   assert.notEqual(free.name, paid.name, 'the demo cannot be mistaken for the real site in the same Render account');
 });
 
-test('render-free.yaml asks for only the four secrets, and keeps them out of the file', () => {
-  assert.doesNotMatch(read('render-free.yaml'), /rzp_(test|live)_[A-Za-z0-9]{6,}/, 'no Razorpay key in the file');
+test('render-free.yaml needs nothing typed: no form boxes, a password that Render makes up, and no secrets in the file', () => {
+  const text = read('render-free.yaml');
+  assert.doesNotMatch(text, /rzp_(test|live)_[A-Za-z0-9]{6,}/, 'no Razorpay key in the file');
+  assert.doesNotMatch(text, /sync:\s*false/, 'no box in Render\'s form: the owner presses Deploy and types nothing');
+  assert.match(text, /^\s+value:\s*"on"\s*(#.*)?$/m, 'on stays in quotes: an unquoted on is a true/false word to some YAML readers');
   const free = varsOf(freeBlueprint());
   const paid = varsOf(blueprint());
-  const boxes = (vars) => Object.values(vars).filter((v) => v.sync === false).map((v) => v.key);
 
-  assert.deepEqual(boxes(free), ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'OPERATOR_PASSWORD'], 'the demo asks for the keys and passwords, nothing else');
-  for (const key of boxes(free)) assert.ok(boxes(paid).includes(key), `${key} is a box in the paid blueprint too, so the guide explains it`);
+  // Each setting has a fixed value, or a value that Render makes up (a random 256-bit one), and nothing else.
+  for (const v of Object.values(free)) {
+    assert.equal(Number('value' in v) + Number('generateValue' in v), 1, `${v.key} has either a fixed value or one that Render makes up`);
+    assert.ok(!('sync' in v), `${v.key} is not a box in Render's form`);
+  }
+  // The only value that Render makes up is the dashboard password, so the dashboard is never left open or guessable.
+  assert.deepEqual(
+    Object.values(free).filter((v) => 'generateValue' in v).map((v) => [v.key, v.generateValue]),
+    [['OPERATOR_PASSWORD', true]],
+  );
   assert.equal(free.NODE_ENV.value, 'production');
+  assert.equal(free.DEMO_PAYMENTS.value, 'on');
   assert.equal(free.NODE_VERSION.value, paid.NODE_VERSION.value);
-  for (const v of Object.values(free)) assert.equal('value' in v, v.sync !== false, `${v.key} has a value or a form box`);
+  // Razorpay's keys and webhook secret are added later, under Environment in Render. They are never in this file.
+  for (const key of ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET']) assert.ok(!(key in free), `${key} is added in Render later, not here`);
   for (const key of ['TRUST_PROXY', 'PORT', 'HOST']) assert.ok(!(key in free), `${key} is chosen by the site on Render`);
+});
+
+test('render-free.yaml gives a site that works at once: payment is simulated, and the dashboard asks for the made-up password', async (t) => {
+  const { DATA_DIR, ...fixed } = Object.fromEntries(
+    Object.values(varsOf(freeBlueprint())).filter((v) => 'value' in v).map((v) => [v.key, v.value]),
+  );
+  assert.ok(DATA_DIR, 'the temporary folder is set (the next test looks at it)');
+  // Render's generateValue makes a base64 string of 256 random bits, which has a trailing "=" and may have + and /.
+  const password = crypto.randomBytes(32).toString('base64');
+  const env = { ...fixed, RENDER: 'true', OPERATOR_PASSWORD: password };
+
+  const c = loadConfig(env);
+  assert.equal(c.production, true);
+  assert.equal(c.demoPayments, true);
+  assert.equal(c.razorpay.configured, false);
+  assert.equal(c.operator.password, password);
+
+  const s = await makeSite({ env }); // makeSite keeps the bookings in its own temporary folder
+  t.after(() => s.close());
+  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'demo', keyId: null, test: true });
+  const { created, paid } = await bookAndPay(s, car());
+  assert.equal(created.status, 201, created.text);
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(paid.json.booking.status, 'paid');
+
+  assert.equal((await s.get('/api/dashboard')).status, 401, 'the dashboard is closed without the password');
+  assert.equal((await s.get('/api/dashboard', { headers: { authorization: basic('operator', 'wrong') } })).status, 401);
+  const open = await s.get('/api/dashboard', { headers: { authorization: basic('operator', password) } });
+  assert.equal(open.status, 200, open.text);
+  assert.equal(open.json.paymentMode, 'demo');
+});
+
+test('once Razorpay keys are added in Render, the demo switches to Razorpay by itself', async (t) => {
+  const { DATA_DIR, ...fixed } = Object.fromEntries(
+    Object.values(varsOf(freeBlueprint())).filter((v) => 'value' in v).map((v) => [v.key, v.value]),
+  );
+  assert.ok(DATA_DIR);
+  const s = await makeSite({ env: { ...fixed, RENDER: 'true', OPERATOR_PASSWORD: 'made up by Render', RAZORPAY_KEY_ID: 'rzp_test_abc123', RAZORPAY_KEY_SECRET: 'test_secret_value_1234' } });
+  t.after(() => s.close());
+  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'razorpay', keyId: 'rzp_test_abc123', test: true });
+  assert.equal((await s.post('/api/payments/demo-confirm', { bookingId: 'bk_0123456789abcdef' })).status, 404, 'no pretend payment once the real one is on');
 });
 
 test('render-free.yaml saves bookings in a temporary folder, and the site says plainly that they do not last', () => {
@@ -372,10 +426,17 @@ test('every setting in render-free.yaml is one the site reads, and is in .env.ex
 
 test('the guide and the README explain the free demo and what it cannot do', () => {
   const guide = read('DEPLOY-RENDER.md');
-  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys']) {
+  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys', 'no boxes', 'DEMO_PAYMENTS', 'OPERATOR_PASSWORD', 'Environment', 'free-demo', 'Demo mode', 'Test mode']) {
     assert.ok(guide.includes(word), `the guide mentions ${word}`);
   }
-  assert.ok(read('README.md').includes('render-free.yaml'), 'the README lists render-free.yaml');
+  // Every setting that the free file makes up or fixes is explained somewhere a reader will look.
+  for (const { key } of freeBlueprint().services[0].envVars) {
+    if (key === 'NODE_VERSION' || key === 'NODE_ENV' || key === 'DATA_DIR') continue; // set the same way as in render.yaml, or explained in the file
+    assert.ok(guide.includes(key), `the guide explains ${key}`);
+  }
+  const readme = read('README.md');
+  assert.ok(readme.includes('render-free.yaml'), 'the README lists render-free.yaml');
+  assert.match(readme, /^\| `DEMO_PAYMENTS` \|/m, 'the README settings table has DEMO_PAYMENTS');
 });
 
 test('render.yaml is the paid blueprint, except on the free-demo branch where it is the free demo', () => {

@@ -4,7 +4,7 @@ This guide takes you from the zip file on your computer to a real website with i
 
 **Render or a server?** Render is the easier road and costs about $7.25 a month, paid in US dollars by card. The other road, in `DEPLOY.md`, rents a plain server for about ₹500 to ₹700 a month and needs a little more patience. Both end in the same website. Pick one; you do not need both.
 
-**Want to try it for free first?** See “A free demo first”, after the table of steps. It costs nothing and uses Razorpay's test keys, but it forgets its bookings, so it is a demo and never a shop.
+**Want to try it for free first?** See “A free demo first”, after the table of steps. It costs nothing, needs no typing and no Razorpay keys to start (the payment is simulated, and Razorpay's test keys can be added later), but it forgets its bookings, so it is a demo and never a shop.
 
 **How long it takes:** about 1 to 2 hours for steps 1 to 7, most of it waiting. Going live with real money takes longer, because Razorpay has to approve your business first (step 8).
 
@@ -29,7 +29,7 @@ A driver's phone --> your domain --> Render --------------------> your parking s
 |---|---|---|
 | Render: the site | $7 a month | the 0.5 CPU, 512 MB size. A lot of this size does not need more. |
 | Render: the disk | $0.25 a month | 1 GB. Bookings take very little room. |
-| Render: a free demo (optional) | $0 | `render-free.yaml`, for trying the site with test keys only. It sleeps when nobody visits and forgets its bookings. See “A free demo first”. |
+| Render: a free demo (optional) | $0 | `render-free.yaml`, for trying the site with a pretend payment or Razorpay test keys only. It sleeps when nobody visits and forgets its bookings. See “A free demo first”. |
 | GitHub | free | a private repository |
 | A domain name | about ₹500 to ₹1,500 a year | from any domain seller |
 | Razorpay | a fee on each payment | see Razorpay's pricing page. The driver pays exactly the parking price shown. |
@@ -37,7 +37,7 @@ A driver's phone --> your domain --> Render --------------------> your parking s
 
 These are the prices on Render's own pages on 24 October 2026; they change, so look at [render.com/pricing](https://render.com/pricing) before you pay. Render bills in **US dollars** to a card. In your bank's app, switch on international online payments for that card first. Render's pages do not say whether Indian GST is added; your first invoice shows it.
 
-**Render's free size cannot be used for a real site.** It forgets every file whenever it restarts, which would erase your bookings, and it falls asleep when nobody visits. A site that takes money needs the paid size and a disk. The free size is good for one thing: a demo with test keys (see “A free demo first”, after the table of steps).
+**Render's free size cannot be used for a real site.** It forgets every file whenever it restarts, which would erase your bookings, and it falls asleep when nobody visits. A site that takes money needs the paid size and a disk. The free size is good for one thing: a demo, with a pretend payment or with test keys (see “A free demo first”, after the table of steps).
 
 ## What to know before you start
 
@@ -86,26 +86,45 @@ Razorpay keeps two separate worlds. In **test mode** the bank window is a preten
 
 ## A free demo first (optional)
 
-Render has a free size, and the file `render-free.yaml` in your repository sets the site up on it. It costs nothing, so it is a good way to see your site working on the internet and to try a payment with Razorpay's **test keys** before you pay for anything. It is a **demo**, not a shop. These differences matter:
+Render has a free size, and the file `render-free.yaml` in your repository sets the site up on it. It costs nothing and **needs no typing at all**: you press one button, Render makes up the dashboard password by itself, and the site works at once, with the payment **simulated** (a pretend pay button, no money moves). Later you can add Razorpay's **test keys** to see Razorpay's real payment window, still without any real money. It is a **demo**, not a shop. These differences matter:
 
 | | Free demo (`render-free.yaml`) | Real site (`render.yaml`) |
 |---|---|---|
 | Price | $0 | about $7.25 a month |
 | When nobody visits | It goes to sleep after 15 minutes. The next visitor waits about a minute while it wakes up. | Always awake |
 | Bookings | **Erased** whenever the site sleeps, restarts or is updated (Render may also restart it at any time) | Kept on the disk |
-| Razorpay keys | **Test keys only** (`rzp_test_…`) | Test first, then live (step 8) |
+| Payments | Simulated at first. With Razorpay **test keys** (`rzp_test_…`) added: Razorpay's test window. | Test keys first, then live (step 8) |
 | Real customers and real money | **Never** | Yes, after step 8 |
 
-Follow steps 1 to 4, 6 and 7 as they are written, with these changes:
+### The quick way: tap a link and press one button
 
-1. **Step 1:** use test keys only, skip item 7 (your business details), and skip the card unless Render asks for one. The demo itself costs nothing.
-2. **Step 3:** in item 4, type `render-free.yaml` in the box called **Blueprint Path**. Render then shows a web service called `parking-site-demo` with **no disk**, and asks for only **four** boxes: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` and `OPERATOR_PASSWORD`, the first four rows of the table there. Every key you type is a **test** key. The site name and business details are left out: the demo shows the site's own name, Bayfind, and tells visitors to ask at the parking office. To use your own, add `SITE_NAME`, `BUSINESS_NAME`, `SUPPORT_EMAIL`, `SUPPORT_PHONE` and `BUSINESS_ADDRESS` under **Environment** in Render and choose **Save and deploy**.
-3. **Step 4:** the Setup check shows a **red message** saying that the bookings are not on the Render disk, and the log shows a **WARNING** about it. On the free demo that is expected, because the free size has no disk. Leave the setting `DATA_DIR` as it is: without it the site would look for a disk that the free size does not have, and might not start.
-4. **Step 6:** the webhook address is your `onrender.com` address, for example `https://parking-site-demo-x1y2.onrender.com/api/razorpay/webhook`. Open the site once first, so that it is awake when Razorpay looks.
-5. **Step 7:** skip item 6 (bookings surviving a restart). On the free demo they do **not** survive one, by design. Make your test booking soon after the site wakes up, and look at it in the dashboard straight away.
-6. **Skip** step 5 (your own address) and step 8 (real payments). The backups in step 9 do not apply either, because there is nothing worth backing up.
+1. Open this address. Replace `YOUR-GITHUB-NAME` with the name of the GitHub account that holds the repository: `https://render.com/deploy?repo=https://github.com/YOUR-GITHUB-NAME/parking-site/tree/free-demo`. It reads the branch `free-demo` of the repository, where the free demo is named `render.yaml`, the one name that a link like this can read. (The repository must be **public**, or Render must be allowed to read it.)
+2. Sign in to Render if it asks. If you have no account, choose **Sign up with GitHub**. Render's own pages do not say whether a free service needs a card; the demo itself costs nothing.
+3. Render shows one web service, `parking-site-demo`, with **no boxes to fill in**. Press **Deploy Blueprint**.
+4. Wait 3 to 6 minutes. Open the service and then its address, near the top of the page, for example `https://parking-site-demo-x1y2.onrender.com`. **Check:** you see the site, with a strip at the top that says **Demo mode: payments are simulated, so no money is taken.** Adding `/healthz` to the address shows `{"ok":true}`.
+5. Try it: choose a vehicle, a time and a bay, press the pretend pay button, and then look the booking up with its vehicle number.
 
-**When you want real customers:** do not turn the demo into the real site. Create the real one from `render.yaml` (step 3, with **Blueprint Path** left as it is), and then delete the demo in Render (open the demo service, choose **Settings**, scroll to the bottom and press **Delete Web Service**), so that nobody finds it by mistake. Never put live keys (`rzp_live_…`) on the demo.
+**The dashboard.** Open `/dashboard` on the same address. The user name is `operator`. Render made up the password, and it is not in any file on GitHub. To read it, open the service in Render, choose **Environment** in the left menu, and find `OPERATOR_PASSWORD` (Render may hide the value behind a button that shows it). If you cannot find a way to read it, or you would rather use a password of your own, press **Edit** next to it, type a long password of your own, and choose **Save and deploy**.
+
+(Without the link: in Render press **New**, then **Blueprint**, connect the repository, and type `render-free.yaml` in the box called **Blueprint Path**. That shows the same service, also with no boxes.)
+
+### Later: Razorpay's test payment window (optional)
+
+Everything above works without Razorpay. To see the real Razorpay window, still with pretend money:
+
+1. Get a pair of **test** keys: step 1, item 4 (in the Razorpay Dashboard switch to **Test Mode**, then open **API Keys** and choose **Generate Key**).
+2. In Render open the service, choose **Environment**, press **+ Add Environment Variable**, and add `RAZORPAY_KEY_ID` (the Key Id, which starts `rzp_test_`) and `RAZORPAY_KEY_SECRET` (the Key Secret). Type them only there: never in a message or an email, and never on GitHub. Then choose **Save and deploy**.
+3. After a minute the strip at the top of the site says **Test mode** instead of **Demo mode**, and the pay button opens Razorpay's own window. Pay with a test card (step 7, item 3). From then on the setting `DEMO_PAYMENTS` does nothing, because Razorpay's keys always come first.
+4. For the webhook (step 6), make up a webhook secret (step 1, item 5) and add it the same way, as `RAZORPAY_WEBHOOK_SECRET`. The webhook address is your `onrender.com` address, for example `https://parking-site-demo-x1y2.onrender.com/api/razorpay/webhook`. Open the site once first, so that it is awake when Razorpay looks.
+5. To show your own name and details on the pages, add `SITE_NAME`, `BUSINESS_NAME`, `SUPPORT_EMAIL`, `SUPPORT_PHONE` and `BUSINESS_ADDRESS` under **Environment** and choose **Save and deploy**. Without them the demo shows the site's own name, Bayfind, and tells visitors to ask at the parking office.
+
+Then follow steps 4, 6 and 7 as they are written, with these changes:
+
+- **Step 4:** the Setup check shows a **red message** saying that the bookings are not on the Render disk, and the log shows a **WARNING** about it. On the free demo that is expected, because the free size has no disk. Leave the setting `DATA_DIR` as it is: without it the site would look for a disk that the free size does not have, and might not start. The dashboard password is the `OPERATOR_PASSWORD` under **Environment** (see above).
+- **Step 7:** skip item 6 (bookings surviving a restart). On the free demo they do **not** survive one, by design. Make your test booking soon after the site wakes up, and look at it in the dashboard straight away.
+- **Skip** step 3 (the link did it), step 5 (your own address), step 8 (real payments) and the backups in step 9, because there is nothing worth backing up. Step 1 is needed only for the test keys and the webhook secret.
+
+**When you want real customers:** do not turn the demo into the real site. Create the real one from `render.yaml` on the `main` branch (step 3, with **Blueprint Path** left as it is), and then delete the demo in Render (open the demo service, choose **Settings**, scroll to the bottom and press **Delete Web Service**), so that nobody finds it by mistake. Never put live keys (`rzp_live_…`) on the demo, and never use `DEMO_PAYMENTS` on a real site: it makes a site that has no Razorpay keys pretend to take payments.
 
 ---
 
@@ -153,7 +172,7 @@ Two files whose names start with a dot, `.gitignore` and `.env.example`, are not
 2. In the Render Dashboard press **New**, then **Blueprint**. (A *Blueprint* is a file, `render.yaml`, that tells Render what to build. You already uploaded it.)
 3. If Render asks to connect GitHub, allow it to read **only the `parking-site` repository**. Then press **Connect** next to that repository.
 4. **Blueprint name:** `parking`. **Branch:** `main`. Leave **Blueprint Path** as it is. (For the free demo, type `render-free.yaml` there instead: see “A free demo first”.)
-5. Render shows what it will create: a **web service** called `parking-site`, with a **1 GB disk** called `parking-data` attached to it. (The free demo shows a web service called `parking-site-demo`, with no disk, and asks for only the first four boxes.) It also shows a box for each setting that `render.yaml` marks as private (`sync: false`). Fill them in:
+5. Render shows what it will create: a **web service** called `parking-site`, with a **1 GB disk** called `parking-data` attached to it. (The free demo shows a web service called `parking-site-demo`, with no disk and no boxes to fill in at all: see “A free demo first”.) It also shows a box for each setting that `render.yaml` marks as private (`sync: false`). Fill them in:
 
    | Box | What to type |
    |---|---|
@@ -368,7 +387,9 @@ Settings live in Render, not in files. Open your service, choose **Environment**
 | Render says the build failed, and the log mentions `package-lock.json` | The file `package-lock.json` is missing from your repository. Upload it (step 2). |
 | Render says the build failed and names a Node version | Render no longer offers the version in `NODE_VERSION`. In `render.yaml` on GitHub change `24.22.1` to a newer 24 number, commit, and deploy again. |
 | Render says it does not know the size `0.5c-512mb` | In `render.yaml` on GitHub change `0.5c-512mb` to `starter`, commit, and press **Deploy Blueprint** again. |
-| Render refuses the free demo and mentions the region | In `render-free.yaml` on GitHub change `singapore` to `frankfurt` (or `oregon`), commit, and press **Deploy Blueprint** again. |
+| Render refuses the free demo and mentions the region | On GitHub change `singapore` to `frankfurt` (or `oregon`) in `render.yaml` on the branch `free-demo` (or in `render-free.yaml`, if you made the demo with **New**, then **Blueprint**), commit, and press **Deploy Blueprint** again. |
+| You cannot sign in to the free demo's dashboard | The user name is `operator`. The password is the value of `OPERATOR_PASSWORD` under **Environment** in Render (see “A free demo first”). To choose your own, press **Edit** next to it, type it, and choose **Save and deploy**. |
+| The free demo still says “Demo mode” after you added Razorpay keys | Both `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are needed, each typed without quotes or spaces, and then **Save and deploy**. The strip says **Test mode** once Razorpay's keys are in. |
 | The free demo takes a minute to open, or the first payment is slow | The free size goes to sleep after 15 minutes without visitors, and waking it takes about a minute. Open the address once, wait, then try again. The real site on the paid size does not sleep. |
 | The deploy fails with "no open port" or the service keeps restarting | Open **Logs** and read the first red line. A missing or wrong setting is the usual cause. |
 | The pages show "Online booking is switched off" | The Razorpay keys are missing or empty in **Environment**. Both `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are needed. |
@@ -425,6 +446,7 @@ For the person who looks after it:
 | Render: the service `parking-site` | The running site. Its settings are under **Environment**; its log is under **Logs**. |
 | Render: the disk `parking-data`, mounted at `/var/data` | The only place that keeps files. `/var/data/test` holds bookings made with test keys and `/var/data/live` those made with live keys. Each has one file, `bookings.json`. |
 | `render.yaml` | Tells Render what to build. Secrets are never in it: the boxes marked `sync: false` are typed into Render. |
+| `render-free.yaml` | The free demo. It has no boxes: Render makes up the dashboard password itself, and `DEMO_PAYMENTS` makes the payment simulated until Razorpay's keys are added under **Environment**. (On the branch `free-demo` the same file is named `render.yaml`, so that one link can start it.) |
 | Render: **Environment** | Your keys, passwords and details (including `ANTHROPIC_API_KEY`, if you use the AI chat answers). Settings that the site chooses itself on Render (`TRUST_PROXY`, `DATA_DIR`, `PORT`) are left out on purpose; add one only if you need to override the choice. |
 | Razorpay: **Webhooks** | One webhook in test mode and one in live mode, both pointing at `/api/razorpay/webhook`. |
 | Anthropic Console (optional) | The AI key, the credit and the spending cap for the chat's AI answers: **API keys**, **Billing** and **Workspaces**. |

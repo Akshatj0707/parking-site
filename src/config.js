@@ -58,6 +58,10 @@ function loadConfig(env = process.env) {
     dataOnRenderDisk: onRender ? isInside(dataDir, RENDER_DISK_PATH) : null,
     // Escape hatch: if a browser's security rules ever block the Razorpay popup, set DISABLE_CSP=1 and restart.
     disableCsp: /^(1|true|yes)$/i.test(String(env.DISABLE_CSP || '').trim()),
+    // For a public DEMO only (render-free.yaml sets it). With no Razorpay keys, a site in production normally switches
+    // booking off; with this on it simulates the payment instead (demo mode), so the whole site works at once. Razorpay keys
+    // always win: once both are set the real Razorpay checkout is used and this setting does nothing.
+    demoPayments: /^(1|true|yes|on)$/i.test(String(env.DEMO_PAYMENTS || '').trim()),
 
     siteName,
     supportEmail: String(env.SUPPORT_EMAIL || '').trim(),
