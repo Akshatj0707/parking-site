@@ -375,12 +375,12 @@
     else if (!state.plate) hint = 'Enter your vehicle number to continue.';
 
     let label = 'Pay';
-    if (mode === 'demo') label = 'Continue to demo payment';
+    if (mode === 'demo') label = 'Continue to payment';
     else if (a) label = 'Pay ' + rupees(a.amount);
 
     const fine =
       mode === 'demo'
-        ? `Demo mode: no real payment is taken. Your bay is held for ${cfg.holdMinutes} minutes once you continue.`
+        ? `Test mode: no real payment is taken. Your bay is held for ${cfg.holdMinutes} minutes once you continue.`
         : `Secure payment by Razorpay. Your bay is held for ${cfg.holdMinutes} minutes once you press Pay.`;
 
     return [
@@ -422,15 +422,15 @@
       ];
     }
     return [
-      h('h2', { tabindex: '-1' }, demo ? 'Demo payment' : 'Complete your payment'),
-      demo ? h('p', { class: 'msg info' }, 'This is a demo, so no money moves. With Razorpay keys added, the Razorpay payment window opens here instead.') : null,
+      h('h2', { tabindex: '-1' }, demo ? 'Test payment' : 'Complete your payment'),
+      demo ? h('p', { class: 'msg info' }, 'This is a test payment, so no money moves. Once Razorpay is connected, its payment window (UPI, cards and more) opens here instead.') : null,
       details,
       holdLine(),
       noteNode(),
       h(
         'button',
         { type: 'button', class: 'btn btn-accent btn-block btn-tall', onclick: demo ? payDemo : openCheckout },
-        demo ? 'Pay ' + rupees(payment.amount / 100) + ' (demo)' : 'Open payment window'
+        demo ? 'Pay ' + rupees(payment.amount / 100) + ' (test)' : 'Open payment window'
       ),
       h('button', { type: 'button', class: 'link-btn', onclick: startAgain }, 'Change my booking'),
     ];

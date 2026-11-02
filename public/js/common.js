@@ -128,7 +128,7 @@
     if (!bar) return;
     const p = cfg.payments;
     let text = '';
-    if (p.mode === 'demo') text = 'Demo mode: payments are simulated, so no money is taken.';
+    if (p.mode === 'demo') text = 'Test mode: payments are simulated, so no money is taken.';
     else if (p.mode === 'unavailable') text = 'Online booking is switched off until payments are set up.';
     else if (p.test) text = 'Test mode: payments use Razorpay test cards, so no real money is taken.';
     bar.textContent = text;

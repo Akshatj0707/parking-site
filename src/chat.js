@@ -135,7 +135,7 @@ const VEHICLE_NAME = { car: 'car', bike: 'two-wheeler' };
 // What the payment mode means for a visitor, in a sentence (empty when payments are real).
 function modeNote(ctx) {
   const mode = ctx.bookings.paymentMode;
-  if (mode === 'demo') return 'Right now the site is in demo mode, so payments are only simulated and no money is taken.';
+  if (mode === 'demo') return 'Right now the site is in test mode, so payments are only simulated and no money is taken.';
   if (mode === 'unavailable') return 'Online booking is switched off until payments are set up.';
   if (!ctx.config.razorpay.live) return 'Payments are in test mode right now, so no real money is taken.';
   return '';

@@ -283,7 +283,7 @@ test('with no contact details set, the answers say to ask at the parking office'
 
 test('what an answer says about payments follows the payment mode', async (t) => {
   const demo = await instantSite(t);
-  assert.ok((await say(demo, 'how do i book')).reply.includes('demo mode'));
+  assert.ok((await say(demo, 'how do i book')).reply.includes('test mode'));
   const off = await instantSite(t, { NODE_ENV: 'production' });
   assert.ok((await say(off, 'how do i book')).reply.includes('switched off'));
   const testMode = await instantSite(t, { RAZORPAY_KEY_ID: 'rzp_test_abc', RAZORPAY_KEY_SECRET: 's' });

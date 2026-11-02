@@ -411,7 +411,7 @@ test('render-free.yaml saves bookings in a temporary folder, and the site says p
   assert.equal(c.trustProxy, 1);
   assert.equal(c.host, '0.0.0.0');
   // The warning in the dashboard's Setup check explains that this is expected on the free size.
-  assert.match(read('public/js/dashboard.js'), /Exception: the free demo \(render-free\.yaml\) has no disk, so there this is expected: leave DATA_DIR as it is/);
+  assert.match(read('public/js/dashboard.js'), /Exception: the free test site \(render-free\.yaml\) has no disk, so there this is expected: leave DATA_DIR as it is/);
 });
 
 test('every setting in render-free.yaml is one the site reads, and is in .env.example', () => {

@@ -135,7 +135,7 @@
       list.push(h('div', { class: 'banner warn' }, h('b', null, 'This page has no password. '), 'Anyone who can open this address can see it. Set OPERATOR_PASSWORD in the server settings before you put the site online.'));
     }
     if (d.paymentMode === 'demo') {
-      list.push(h('div', { class: 'banner info' }, h('b', null, 'Demo mode. '), 'Payments are simulated, so the money figures here are not real.'));
+      list.push(h('div', { class: 'banner info' }, h('b', null, 'Test mode. '), 'Payments are simulated because Razorpay is not connected yet, so the money figures here are not real. To connect it, open this service in Render, choose Environment, add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (your Razorpay test keys), then choose Save and deploy.'));
     } else if (d.paymentMode === 'razorpay' && cfg.payments.test) {
       list.push(h('div', { class: 'banner info' }, h('b', null, 'Test mode. '), 'These are Razorpay test payments, not real money.'));
     }
@@ -415,7 +415,7 @@
     const s = r.storage;
     const warn =
       s.onRender && s.onDisk === false
-        ? h('p', { class: 'msg err', role: 'alert' }, h('b', null, 'Bookings are not on the Render disk. '), `They are lost every time the site restarts or is updated. Remove the DATA_DIR setting in Render, or point it at a folder inside ${s.diskPath}. Exception: the free demo (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only, never for real customers.`)
+        ? h('p', { class: 'msg err', role: 'alert' }, h('b', null, 'Bookings are not on the Render disk. '), `They are lost every time the site restarts or is updated. Remove the DATA_DIR setting in Render, or point it at a folder inside ${s.diskPath}. Exception: the free test site (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only, never for real customers.`)
         : s.onRender
           ? h('p', { class: 'msg ok' }, `Yes. This folder is on the Render disk (${s.diskPath}), so bookings stay when the site restarts or is updated.`)
           : null;

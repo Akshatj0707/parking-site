@@ -646,7 +646,7 @@ class BookingService {
       booking.status = 'cancelled';
       this.persist();
       this.log.warn(`Booking ${booking.ref} (a demo booking) was cancelled by the operator.`);
-      return { outcome: 'cancelled', booking, message: 'Cancelled. This was a demo booking, so no money was taken and nothing needs to be refunded.' };
+      return { outcome: 'cancelled', booking, message: 'Cancelled. This was a test booking (the payment was simulated), so no money was taken and nothing needs to be refunded.' };
     }
 
     const paymentId = booking.paymentId;
@@ -765,6 +765,11 @@ class BookingService {
     };
   }
 }
+
+BookingService.prototype.analytics = function analytics() {
+  // Placeholder: the real version is written in the analytics step.
+  return { serverTime: this.now() };
+};
 
 function createBookingService(deps) {
   return new BookingService(deps);

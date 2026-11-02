@@ -372,7 +372,7 @@ test('in demo mode cancelling just cancels: no money moved, nothing to refund', 
   const done = await s.post(CANCEL(ref), {});
   assert.equal(done.status, 200, done.text);
   assert.equal(done.json.outcome, 'cancelled');
-  assert.match(done.json.message, /demo booking/);
+  assert.match(done.json.message, /test booking/);
   assert.equal(byRef(s, ref).status, 'cancelled');
   assert.equal(byRef(s, ref).cancelReason, 'operator');
   assert.equal(await bayIsFree(s, 'C001'), true);

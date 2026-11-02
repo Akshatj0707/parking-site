@@ -16,7 +16,9 @@ const { createChat } = require('./chat');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 // The only pages the site serves. Each one is plain HTML with {{TOKENS}} that are filled in from the settings.
-const PAGES = { '/': 'index.html', '/book': 'book.html', '/lookup': 'lookup.html', '/dashboard': 'dashboard.html' };
+const PAGES = { '/': 'index.html', '/book': 'book.html', '/lookup': 'lookup.html', '/dashboard': 'dashboard.html', '/analytics': 'analytics.html' };
+// Pages that only the operator (admin) may open.
+const ADMIN_PAGES = new Set(['/dashboard', '/analytics']);
 // The policy pages. Razorpay looks for these before it switches a shop to live payments. The words of each page are in
 // public/legal/<name>.html; public/legal.html wraps them in the site's header and footer. The footer links come from
 // this list, in this order.
@@ -407,6 +409,11 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     res.json(connectionReport(req, config, store, chat));
   });
 
+  // Numbers for the analytics page: collection per day, the busiest hours and so on.
+  app.get('/api/dashboard/analytics', operatorGate, operatorLimit, (req, res) => {
+    res.json(bookings.analytics(req.query));
+  });
+
   // Cancel a paid booking and refund it in full (or try a failed refund again).
   app.post(
     '/api/dashboard/bookings/:ref/cancel',
@@ -427,7 +434,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
 
   // ---- Pages and files ---------------------------------------------------------------------------
   for (const [route, file] of Object.entries(PAGES)) {
-    const gate = route === '/dashboard' ? [operatorGate] : [];
+    const gate = ADMIN_PAGES.has(route) ? [operatorGate] : [];
     app.get(route, ...gate, (req, res) => {
       res.set('Cache-Control', 'no-cache');
       res.type('html').send(renderPage(file));
