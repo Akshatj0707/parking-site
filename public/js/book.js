@@ -524,6 +524,11 @@
       els.plate.scrollIntoView({ block: 'center', behavior: 'smooth' });
       return;
     }
+    if (state.cfg.auth && state.cfg.auth.loginRequired && !state.user) {
+      state.note = { kind: 'info', text: 'Please sign in, or create an account, to book this bay. Your choices here are kept.', link: { href: '/login?next=' + encodeURIComponent('/book'), text: 'Sign in or create an account' } };
+      renderSummary();
+      return;
+    }
     state.busy = true;
     state.note = null;
     renderSummary();
@@ -546,6 +551,7 @@
 
   function bookingFailed(err, plate) {
     state.note = { kind: 'err', text: err.message };
+    if (err.code === 'login_required') state.note.link = { href: '/login?next=' + encodeURIComponent('/book'), text: 'Sign in or create an account' };
     if (err.code === 'plate_busy') state.note.link = { href: '/lookup?plate=' + encodeURIComponent(plate), text: 'Open Find my booking' };
     if (err.code === 'bay_taken') state.bay = null;
     if (err.code === 'too_early' || err.code === 'too_late' || err.code === 'bay_taken' || err.code === 'zone_full') {
@@ -733,6 +739,7 @@
       return;
     }
     state.cfg = cfg;
+    state.user = await B.session();
     state.hours = cfg.hoursOptions[0];
 
     const query = new URLSearchParams(window.location.search);

@@ -45,6 +45,10 @@ function loadConfig(env = process.env) {
   const chatKey = String(env.ANTHROPIC_API_KEY || '').trim();
   const chatDailyLimit = Math.floor(number(env.CHAT_DAILY_LIMIT, 500));
 
+  const demoPayments = /^(1|true|yes|on)$/i.test(String(env.DEMO_PAYMENTS || '').trim());
+  const isOff = (value) => /^(0|false|no|off)$/i.test(String(value || '').trim());
+  const isOn = (value) => /^(1|true|yes|on)$/i.test(String(value || '').trim());
+
   return {
     production,
     port: number(env.PORT, 3000),
@@ -61,7 +65,7 @@ function loadConfig(env = process.env) {
     // For a public DEMO only (render-free.yaml sets it). With no Razorpay keys, a site in production normally switches
     // booking off; with this on it simulates the payment instead (demo mode), so the whole site works at once. Razorpay keys
     // always win: once both are set the real Razorpay checkout is used and this setting does nothing.
-    demoPayments: /^(1|true|yes|on)$/i.test(String(env.DEMO_PAYMENTS || '').trim()),
+    demoPayments,
 
     siteName,
     supportEmail: String(env.SUPPORT_EMAIL || '').trim(),
@@ -80,6 +84,16 @@ function loadConfig(env = process.env) {
     operator: {
       user: String(env.OPERATOR_USER || 'operator'),
       password: String(env.OPERATOR_PASSWORD || ''),
+    },
+    // Accounts and roles. ADMIN is the operator (OPERATOR_USER and OPERATOR_PASSWORD); CUSTOMER is anyone who signs up.
+    auth: {
+      // On by default: a customer signs in (or signs up) before booking. CUSTOMER_LOGIN_REQUIRED=off lets anyone book.
+      customerLoginRequired: !isOff(env.CUSTOMER_LOGIN_REQUIRED),
+      // Signs the sign-in cookies. Optional: when empty, a random key is kept next to the bookings.
+      sessionSecret: String(env.SESSION_SECRET || '').trim(),
+      // A public test site (no Razorpay keys) creates a test customer, so a visitor can try it at once. SEED_TEST_CUSTOMER
+      // turns that on or off; by default it is on only where DEMO_PAYMENTS is on in production.
+      seedTestCustomer: !(keyId && keySecret) && !isOff(env.SEED_TEST_CUSTOMER) && (isOn(env.SEED_TEST_CUSTOMER) || (production && demoPayments)),
     },
     chat: {
       enabled: chatEnabled,

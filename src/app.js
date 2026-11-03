@@ -13,10 +13,20 @@ const { verifyWebhookSignature } = require('./payments');
 const { RENDER_DISK_PATH } = require('./config');
 const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
+const { createAuth } = require('./auth');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 // The only pages the site serves. Each one is plain HTML with {{TOKENS}} that are filled in from the settings.
-const PAGES = { '/': 'index.html', '/book': 'book.html', '/lookup': 'lookup.html', '/dashboard': 'dashboard.html', '/analytics': 'analytics.html' };
+const PAGES = {
+  '/': 'index.html',
+  '/book': 'book.html',
+  '/lookup': 'lookup.html',
+  '/dashboard': 'dashboard.html',
+  '/analytics': 'analytics.html',
+  '/login': 'auth.html',
+  '/signup': 'auth.html',
+  '/account': 'auth.html',
+};
 // Pages that only the operator (admin) may open.
 const ADMIN_PAGES = new Set(['/dashboard', '/analytics']);
 // The policy pages. Razorpay looks for these before it switches a shop to live payments. The words of each page are in
@@ -44,6 +54,8 @@ const FOOTER_NAV = [
   '      <nav aria-label="Footer">',
   '        <a href="/book">Book a bay</a>',
   '        <a href="/lookup">Find my booking</a>',
+  '        <a href="/login">Sign in</a>',
+  '        <a href="/signup">Create account</a>',
   '        <a href="/dashboard">Operator</a>',
   '      </nav>',
   '      <nav aria-label="Policies">',
@@ -205,10 +217,12 @@ function connectionReport(req, config, store, chat) {
 function createApp({ config, store, razorpay = null, now = Date.now, log = console, chat: chatOptions = {} }) {
   const bookings = createBookingService({ config, store, razorpay, now, log });
   const chat = createChat({ config, bookings, now, log, ...chatOptions });
+  const auth = createAuth({ config, now, log });
   const renderPage = createPageRenderer(config, now);
   const app = express();
   app.locals.bookings = bookings;
   app.locals.chat = chat;
+  app.locals.auth = auth;
   app.disable('x-powered-by');
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
   app.use(securityHeaders(config));
@@ -269,6 +283,12 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
       lot: S.LOT,
       payments: { mode, keyId: mode === 'razorpay' ? config.razorpay.keyId : null, test: !config.razorpay.live },
       chat: chat.info(),
+      auth: {
+        loginRequired: config.auth.customerLoginRequired,
+        // false on a host that forgets its files at every restart: accounts and bookings are then lost with them
+        persistent: config.dataOnRenderDisk !== false,
+        testCustomer: config.auth.seedTestCustomer ? { email: auth.TEST_CUSTOMER.email, password: auth.TEST_CUSTOMER.password } : null,
+      },
     });
   });
 
@@ -290,7 +310,14 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     '/api/bookings',
     checkoutLimit,
     wrap(async (req, res) => {
-      res.status(201).json(await bookings.startCheckout(req.body));
+      const session = auth.current(req);
+      if (config.auth.customerLoginRequired && !session) {
+        throw new HttpError(401, 'login_required', 'Please sign in or create an account to book a bay.');
+      }
+      // The booking belongs to the signed-in customer. The browser cannot choose this value.
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? { ...req.body } : req.body;
+      if (body && typeof body === 'object') body.customerId = session && session.role === 'customer' ? session.id : null;
+      res.status(201).json(await bookings.startCheckout(body));
     })
   );
 
@@ -333,11 +360,57 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     res.json(bookings.lookup(req.query.plate));
   });
 
+  // ---- Accounts: customers sign up and sign in; the operator signs in with the operator password -------------------
+  const signInLimit = createLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many sign-in attempts. Please wait a minute and try again.' });
+  const signUpLimit = createLimiter({ windowMs: 60 * 60 * 1000, max: 15, message: 'Too many accounts were created from this connection. Please try again later.' });
+
+  app.get('/api/me', (req, res) => {
+    res.json({ user: auth.publicUser(auth.current(req)) });
+  });
+
+  app.post(
+    '/api/auth/signup',
+    ownPagesOnly,
+    signUpLimit,
+    wrap(async (req, res) => {
+      const session = await auth.signup(req.body, req, res);
+      res.status(201).json({ user: auth.publicUser(session), next: '/account' });
+    })
+  );
+
+  app.post(
+    '/api/auth/login',
+    ownPagesOnly,
+    signInLimit,
+    wrap(async (req, res) => {
+      const session = await auth.login(req.body, req, res);
+      res.json({ user: auth.publicUser(session), next: session.role === 'admin' ? '/dashboard' : '/account' });
+    })
+  );
+
+  app.post('/api/auth/logout', ownPagesOnly, (req, res) => {
+    auth.logout(req, res);
+    res.json({ ok: true });
+  });
+
+  // A signed-in customer's own bookings (and nobody else's).
+  app.get('/api/account/bookings', (req, res) => {
+    const session = auth.current(req);
+    if (!session) throw new HttpError(401, 'login_required', 'Please sign in to see your bookings.');
+    if (session.role !== 'customer') throw new HttpError(403, 'forbidden', 'Only customer accounts have bookings.');
+    res.json({ bookings: bookings.forCustomer(session.id) });
+  });
+
   // ---- Operator area: protected by a user name and password ---------------------------------------
   const wrongPasswords = new HitCounter(60 * 1000, now);
+  // Only the ADMIN gets through: someone who signed in at /login with the operator user name and password (a cookie), or a
+  // script that sends the operator password with HTTP Basic. A signed-in customer is refused with 403.
+  const operatorOnlyPage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operators only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Operators only</h1><p>You are signed in as a customer, and this page is only for the lot operator.</p><p><a href="/account">My bookings</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`;
   function operatorGate(req, res, next) {
     const { user, password } = config.operator;
     res.set('Cache-Control', 'no-store');
+    const session = auth.current(req);
+    if (session && session.role === 'admin') return next();
     if (!password) {
       if (config.production) {
         return res.status(503).type('text/plain').send('The operator dashboard is switched off until OPERATOR_PASSWORD is set in the server settings.');
@@ -361,6 +434,17 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
       }
       wrongPasswords.hit(who);
     }
+    const accept = String(req.get('Accept') || '');
+    const wantsHtml = /\btext\/html\b/i.test(accept);
+    const wantsJson = !wantsHtml && /\bapplication\/json\b/i.test(accept);
+    if (session) {
+      if (wantsHtml) return res.status(403).type('html').send(operatorOnlyPage);
+      return res.status(403).json({ error: 'forbidden', message: 'This area is only for the lot operator. You are signed in as a customer.' });
+    }
+    // A browser opening a page is sent to the sign-in page; the pages' own requests get a plain "sign in" answer (no
+    // browser password box); scripts such as curl get the classic HTTP Basic challenge.
+    if (!header && wantsHtml && req.method === 'GET') return res.redirect(302, '/login?next=' + encodeURIComponent(req.originalUrl));
+    if (!header && wantsJson) return res.status(401).json({ error: 'login_required', message: 'Please sign in as the operator.' });
     res.set('WWW-Authenticate', 'Basic realm="Parking operator", charset="UTF-8"');
     return res.status(401).type('text/plain').send('Sign in with the operator user name and password.');
   }
@@ -392,7 +476,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     }
     const isJson = /^application\/json\b/i.test(String(req.get('Content-Type') || ''));
     if (!fromThisSite || !isJson) {
-      return res.status(403).json({ error: 'forbidden', message: 'That request did not come from the dashboard page.' });
+      return res.status(403).json({ error: 'forbidden', message: 'That request did not come from a page of this website.' });
     }
     return next();
   }
@@ -412,6 +496,14 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   // Numbers for the analytics page: collection per day, the busiest hours and so on.
   app.get('/api/dashboard/analytics', operatorGate, operatorLimit, (req, res) => {
     res.json(bookings.analytics(req.query));
+  });
+
+  // Sample bookings so the analytics can be shown before any real customer has booked. Test mode only (see addSampleData).
+  app.post('/api/dashboard/sample-data', operatorGate, ownPagesOnly, operatorLimit, (req, res) => {
+    const action = req.body && req.body.action;
+    if (action === 'add') return res.json({ ok: true, ...bookings.addSampleData() });
+    if (action === 'remove') return res.json({ ok: true, ...bookings.removeSampleData() });
+    throw new HttpError(400, 'invalid_action', 'The action must be add or remove.');
   });
 
   // Cancel a paid booking and refund it in full (or try a failed refund again).

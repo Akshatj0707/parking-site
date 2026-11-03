@@ -72,7 +72,8 @@ function fakeRazorpay() {
 async function makeSite({ env = {}, razorpayKeys = false, startAt = START, existingDir, chat, log = silentLog } = {}) {
   const dir = existingDir || fs.mkdtempSync(path.join(os.tmpdir(), 'bayfind-test-'));
   const keys = razorpayKeys ? { RAZORPAY_KEY_ID: KEY_ID, RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET } : {};
-  const config = loadConfig({ DATA_DIR: dir, ...keys, ...env });
+  // Most tests book without an account; the ones about accounts turn this on with env: { CUSTOMER_LOGIN_REQUIRED: 'on' }.
+  const config = loadConfig({ DATA_DIR: dir, CUSTOMER_LOGIN_REQUIRED: 'off', ...keys, ...env });
   const clock = { t: startAt };
   const store = new Store(dir);
   const fake = config.razorpay.configured ? fakeRazorpay() : null;
@@ -83,8 +84,9 @@ async function makeSite({ env = {}, razorpayKeys = false, startAt = START, exist
   });
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  const call = async (method, url, { body, headers = {}, raw } = {}) => {
+  const call = async (method, url, { body, headers = {}, raw, redirect } = {}) => {
     const init = { method, headers: { ...headers } };
+    if (redirect) init.redirect = redirect;
     if (raw !== undefined) {
       init.body = raw;
     } else if (body !== undefined) {

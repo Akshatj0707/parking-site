@@ -23,6 +23,7 @@ const crypto = require('crypto');
 const S = require('../public/js/shared.js');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
+const { analytics, sampleBookings } = require('./analytics');
 
 const { MIN, HOUR, DAY, LOT, VEHICLES } = S;
 
@@ -249,6 +250,8 @@ class BookingService {
       paymentId: null,
       paidAt: null,
       mode: this.paymentMode,
+      // the signed-in customer who made it (set by the website, never by the browser), or null
+      customerId: typeof body.customerId === 'string' && /^usr_[0-9a-f]{12}$/.test(body.customerId) ? body.customerId : null,
     };
 
     const replaced = this.store.bookings.filter((b) => isOwnHold(b) && this.isBlocking(b, now) && overlaps(b, booking));
@@ -579,6 +582,7 @@ class BookingService {
       amount: b.amountPaise / 100,
       status: b.status,
       cancelledByOperator: b.cancelReason === 'operator',
+      sample: Boolean(b.sample),
       paidAt: b.paidAt,
       paymentId: b.paymentId,
       refundId: b.refundId || null,
@@ -764,12 +768,59 @@ class BookingService {
       attention,
     };
   }
-}
 
-BookingService.prototype.analytics = function analytics() {
-  // Placeholder: the real version is written in the analytics step.
-  return { serverTime: this.now() };
-};
+  // ---- A customer's own bookings -------------------------------------------------------------------
+  // Paid, cancelled-by-the-operator and refunded bookings that were made while signed in as this customer.
+  forCustomer(customerId) {
+    const now = this.now();
+    const off = this.config.utcOffsetMinutes;
+    return this.store.bookings
+      .filter((b) => b.customerId === customerId && (b.status === 'paid' || b.status === 'refunded' || b.status === 'refund_pending' || b.status === 'refund_failed' || (b.status === 'cancelled' && b.cancelReason === 'operator')))
+      .sort((a, b) => b.startMs - a.startMs)
+      .map((b) => {
+        let state = 'cancelled';
+        if (b.status === 'paid') state = b.endMs <= now ? 'completed' : b.startMs <= now ? 'active' : 'upcoming';
+        else if (b.status !== 'cancelled') state = 'refunded';
+        return {
+          ref: b.ref,
+          vehicleLabel: LOT[b.vehicle].label,
+          plate: S.formatPlate(b.plate),
+          bay: b.bay,
+          zone: LOT[b.vehicle].zones[S.parseBay(b.bay).zone],
+          startMs: b.startMs,
+          endMs: b.endMs,
+          hours: b.hours,
+          window: S.formatWindow(b.startMs, b.endMs, off),
+          amount: b.amountPaise / 100,
+          state,
+        };
+      });
+  }
+
+  // ---- Analytics for the operator ----------------------------------------------------------------------
+  analytics(query) {
+    return { ...analytics(this.store.bookings, { now: this.now(), config: this.config, query: query || {} }), paymentMode: this.paymentMode, siteName: this.config.siteName };
+  }
+
+  // Sample bookings for a demonstration. Only while payments are simulated; they are in the past and marked sample.
+  addSampleData() {
+    if (this.paymentMode !== 'demo') {
+      throw new HttpError(409, 'not_allowed', 'Sample bookings can only be added while payments are in test mode (no Razorpay keys).');
+    }
+    this.store.bookings = this.store.bookings.filter((b) => !b.sample);
+    const made = sampleBookings({ existing: this.store.bookings, now: this.now(), config: this.config, newRef: () => this.newRef() });
+    for (const b of made) this.store.add(b);
+    this.persist();
+    return { added: made.length };
+  }
+
+  removeSampleData() {
+    const before = this.store.bookings.length;
+    this.store.bookings = this.store.bookings.filter((b) => !b.sample);
+    if (this.store.bookings.length !== before) this.persist();
+    return { removed: before - this.store.bookings.length };
+  }
+}
 
 function createBookingService(deps) {
   return new BookingService(deps);

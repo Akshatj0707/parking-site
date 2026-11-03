@@ -19,7 +19,8 @@
   async function api(path, options) {
     let res;
     try {
-      res = await fetch(path, options);
+      // Asking for JSON tells the server this is the page's own request, not a person opening an address.
+      res = await fetch(path, { ...options, headers: { Accept: 'application/json', ...((options && options.headers) || {}) } });
     } catch (err) {
       throw new ApiError(0, 'network', 'We could not reach the server. Check your internet connection and try again.');
     }
@@ -29,6 +30,11 @@
       data = JSON.parse(text);
     } catch (err) {
       // Some errors (such as the dashboard password prompt) are plain text.
+    }
+    if (res.status === 401 && data && data.error === 'login_required' && path.startsWith('/api/dashboard') && !/^\/(login|signup)\b/.test(location.pathname)) {
+      // the operator pages need the operator to be signed in: go to the sign-in page and come back here afterwards
+      location.assign('/login?next=' + encodeURIComponent(location.pathname));
+      return new Promise(() => {});
     }
     if (!res.ok) {
       const plain = text && text.length < 200 && !/^\s*</.test(text) ? text : '';
@@ -213,8 +219,51 @@
     },
   };
 
-  window.Bayfind = { S, ApiError, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember };
+  // ---- Who is signed in -----------------------------------------------------------------------------------------
+  let sessionPromise = null;
+  // { role: 'admin' | 'customer', name, email } or null
+  function session() {
+    if (!sessionPromise) sessionPromise = api('/api/me').then((r) => r.user, () => null);
+    return sessionPromise;
+  }
+  function refreshSession() {
+    sessionPromise = null;
+    return session();
+  }
+  async function signOut() {
+    try {
+      await post('/api/auth/logout', {});
+    } catch (err) {
+      // the cookie may already be gone
+    }
+    await refreshSession();
+    location.assign('/');
+  }
 
-  // Every page shows the payment-mode strip.
+  // The links "Sign in" or "My bookings" and "Sign out" (for the operator: Dashboard, Analytics and "Sign out") go at the
+  // end of each page's main menu, just before the booking button.
+  async function applyAuthNav() {
+    const nav = document.querySelector('header .nav');
+    if (!nav) return;
+    const user = await session();
+    nav.querySelectorAll('[data-auth]').forEach((node) => node.remove());
+    const cta = nav.querySelector('.nav-cta');
+    const add = (node) => nav.insertBefore(node, cta);
+    const link = (href, text) => h('a', { class: 'nav-auth', href, 'data-auth': '' }, text);
+    const has = (href) => nav.querySelector('a[href="' + href + '"]');
+    if (!user) return add(link('/login', 'Sign in'));
+    if (user.role === 'admin') {
+      if (!has('/dashboard')) add(link('/dashboard', 'Dashboard'));
+      if (!has('/analytics')) add(link('/analytics', 'Analytics'));
+    } else if (!has('/account')) {
+      add(link('/account', 'My bookings'));
+    }
+    return add(h('button', { class: 'nav-auth nav-signout', type: 'button', 'data-auth': '', onclick: signOut }, 'Sign out'));
+  }
+
+  window.Bayfind = { S, ApiError, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, signOut };
+
+  // Every page shows the payment-mode strip and who is signed in.
   getConfig().then(applyModeBanner, () => {});
+  applyAuthNav();
 })();
