@@ -134,6 +134,15 @@ A public test site (no Razorpay keys, `DEMO_PAYMENTS=on` in production) creates 
 
 `/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). While payments are in test mode the page can add about two weeks of clearly marked **sample bookings** (all in the past, so they never block a bay) so the charts can be shown before real customers have booked, and remove them again.
 
+### Free AI answers for the chat (any question)
+
+Without an AI key the chat gives built-in answers about parking (prices, free bays, booking, refunds, accounts, the time) and says honestly when it does not know. To let it answer **any** question, give it an AI key. There are two ways:
+
+- **Free:** make a free key at Google AI Studio (aistudio.google.com) for Gemini, or at console.groq.com for Groq. Then add `AI_API_KEY` (the key) and `AI_PROVIDER` (`gemini`, the default, or `groq`) to your settings. `AI_MODEL` changes the model. `AI_PROVIDER=custom` with `AI_BASE_URL` and `AI_MODEL` works with any service that speaks the OpenAI chat format. Free plans have their own daily limits; when one is reached (or the service is down) the chat goes on with the built-in answers.
+- **Paid:** `ANTHROPIC_API_KEY` (the Claude AI model). It is used first when both are set.
+
+With an AI key the chat can still look up live free bays and prices, never invents prices or bay counts, and declines harmful requests. What visitors type in the chat is sent to the AI service you chose; the privacy page says which one. Never put a key in chat messages or on GitHub: type it only into Render's Environment page or your `.env` file.
+
 ### Cancelling a booking and refunding it
 
 Drivers cannot cancel on their own: there are no accounts, so the site cannot tell who is asking. You can, from the dashboard:
@@ -214,6 +223,7 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `WEEKEND_DAYS` | Which days use the weekend price: `0` = Sunday … `6` = Saturday. | `0,6` |
 | `HOLD_MINUTES` | How long a bay is held while the driver pays. | `10` |
 | `UTC_OFFSET_MINUTES` | The lot's clock, in minutes ahead of UTC. `330` is India. | `330` |
+| `AI_API_KEY`, `AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL` | A free (or any OpenAI-compatible) AI for the chat: see “Free AI answers for the chat”. | empty, `gemini` |
 | `ANTHROPIC_API_KEY` | Your Anthropic key, so that an AI writes the chat answers (section 3, “The chat assistant”). It starts with `sk-ant-`. Keep it private. Empty means built-in answers only. | empty |
 | `CHAT_ENABLED` | `off` (or `0`, `false`, `no`) hides the chat window on every page. | on |
 | `CHAT_MODEL` | The AI model that writes the chat answers. | `claude-haiku-5-5` |

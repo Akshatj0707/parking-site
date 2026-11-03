@@ -93,14 +93,15 @@ function contactList(config) {
 function chatPrivacy(config) {
   if (!config.chat.enabled) return { section: '', sharing: '' };
   const ai = config.chat.ai;
+  const who = config.chat.provider === 'openai' ? escapeHtml(config.chat.providerLabel || 'the AI service') : 'Anthropic, the company that makes the Claude AI model';
   const section = [
     '<h2>Chat assistant</h2>',
     '    <p>This website has a chat window for questions about parking, prices and bookings. Please do not type card numbers, passwords or other secrets into it. The conversation stays in your browser tab and is gone when you close the tab. We do not save what you type in the chat on our server, and it is never added to your booking.</p>',
     ai
-      ? '    <p>To write an answer, our server sends what you typed in the chat, together with the last few messages of the same chat, to Anthropic, the company that makes the Claude AI model. Anthropic handles that text under its own privacy policy. If the AI cannot be reached, a simple built-in answer is given instead and nothing is sent to Anthropic. The assistant can make mistakes, so check prices and times on the booking page.</p>'
+      ? `    <p>To write an answer, our server sends what you typed in the chat, together with the last few messages of the same chat, to ${who}. ${who} handles that text under its own privacy policy. If the AI cannot be reached, a simple built-in answer is given instead and nothing is sent to ${who}. The assistant can make mistakes, so check prices and times on the booking page.</p>`
       : '    <p>The answers are made by our own server from the prices and bay counts on this website. What you type in the chat is not sent to anyone else.</p>',
   ].join('\n');
-  const sharing = ai ? '<li><strong>Anthropic</strong> writes the answers of the chat assistant, using what you type in the chat (see “Chat assistant” below).</li>' : '';
+  const sharing = ai ? `<li><strong>${config.chat.provider === 'openai' ? escapeHtml(config.chat.providerLabel || 'The AI service') : 'Anthropic'}</strong> writes the answers of the chat assistant, using what you type in the chat (see “Chat assistant” below).</li>` : '';
   return { section, sharing };
 }
 

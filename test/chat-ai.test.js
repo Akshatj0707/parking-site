@@ -10,7 +10,7 @@ const http = require('node:http');
 const { API_URL, API_VERSION, LIMITS, splitActions, toolDefinitions } = require('../src/chat');
 const { loadConfig } = require('../src/config');
 const {
-  makeSite, makeChatSite, claudeSays, claudeMessage, claudeError, toolUse, json, bookAndPay, car, bike, say, chatBody, AI_KEY, MINUTE,
+  makeSite, makeChatSite, fakeClaude, claudeSays, claudeMessage, claudeError, toolUse, json, bookAndPay, car, bike, say, chatBody, AI_KEY, MINUTE,
 } = require('./helpers');
 
 const SUPPORT = { SUPPORT_EMAIL: 'help@bayfind.example', SUPPORT_PHONE: '+91 98765 43210', BUSINESS_ADDRESS: '12 Station Road, Indore', BUSINESS_NAME: 'Indore Parking Co' };
@@ -563,4 +563,107 @@ test('over a real connection, an overloaded or a very slow Anthropic still leave
   const refused = await makeSite({ env: { ANTHROPIC_API_KEY: AI_KEY }, chat: { apiUrl: 'http://127.0.0.1:1/v1/messages' } }); // nothing listens there
   t.after(() => refused.close());
   assert.equal((await refused.post('/api/chat', chatBody('hi'))).json.mode, 'instant');
+});
+
+// ===== A free AI key: any service that speaks the OpenAI chat format (Gemini, Groq, ...) ================================
+
+const openaiSays = (text) => () => json({ id: 'c1', choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: text } }] });
+const openaiTool = (name, args, id = 'call_1') => () =>
+  json({ id: 'c2', choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] });
+
+async function makeOpenaiSite(t, steps, env = {}) {
+  const fake = fakeClaude(...steps);
+  const site = await makeSite({ env: { AI_API_KEY: 'AIza-test-key-5678', ...env }, chat: { fetchImpl: fake.fetchImpl } });
+  t.after(() => site.close());
+  return { site, fake };
+}
+
+test('a free AI key (Gemini by default) answers general questions in the OpenAI format, and the key never reaches the visitor', async (t) => {
+  const { site, fake } = await makeOpenaiSite(t, [openaiSays('Paris is the capital of France.\nACTIONS: book-car')]);
+  assert.equal(site.config.chat.provider, 'openai');
+  assert.equal(site.config.chat.ai, true);
+  const r = await say(site, 'what is the capital of France?');
+  assert.equal(r.mode, 'ai');
+  assert.match(r.reply, /Paris/);
+  assert.ok(!/ACTIONS/.test(r.reply));
+  assert.equal(r.actions[0].href, '/book?vehicle=car');
+  const call = fake.calls[0];
+  assert.equal(call.url, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+  assert.equal(call.headers.authorization, 'Bearer AIza-test-key-5678');
+  assert.equal(call.body.model, 'gemini-3.8-flash');
+  assert.equal(call.body.messages[0].role, 'system');
+  assert.match(call.body.messages[0].content, /general questions on any other topic/);
+  assert.equal(call.body.messages[call.body.messages.length - 1].content, 'what is the capital of France?');
+  assert.ok(call.body.tools.every((tool) => tool.type === 'function' && tool.function.name));
+  assert.ok(!JSON.stringify(r).includes('AIza-test-key'));
+  assert.deepEqual(site.app.locals.chat.status().provider, 'openai');
+});
+
+test('the free AI can use the free-bays tool, and the answer comes with the bay card', async (t) => {
+  const { site, fake } = await makeOpenaiSite(t, [
+    openaiTool('check_free_bays', { vehicle: 'car', date: '2026-10-14', time: '11:00', hours: 2 }),
+    openaiSays('There are plenty of free car bays.'),
+  ]);
+  const r = await say(site, 'any car bays free at 11 today for 2 hours?');
+  assert.equal(r.mode, 'ai');
+  assert.match(r.reply, /plenty/);
+  assert.equal(r.cards.length, 1);
+  const second = fake.calls[1].body.messages;
+  assert.equal(second[second.length - 2].role, 'assistant');
+  assert.equal(second[second.length - 2].tool_calls[0].id, 'call_1');
+  assert.equal(second[second.length - 1].role, 'tool');
+  assert.equal(second[second.length - 1].tool_call_id, 'call_1');
+  assert.match(second[second.length - 1].content, /freeBays/);
+});
+
+test('Groq, a custom address and a custom model are chosen with AI_PROVIDER, AI_BASE_URL and AI_MODEL', async (t) => {
+  const groq = await makeSite({ env: { AI_API_KEY: 'k', AI_PROVIDER: 'groq' } });
+  t.after(() => groq.close());
+  assert.equal(groq.config.chat.openai.baseUrl, 'https://api.groq.com/openai/v1');
+  assert.equal(groq.config.chat.model, 'llama-3.3-70b-versatile');
+  const custom = await makeSite({ env: { AI_API_KEY: 'k', AI_PROVIDER: 'custom', AI_BASE_URL: 'https://ai.example.org/v1/', AI_MODEL: 'my-model' } });
+  t.after(() => custom.close());
+  assert.equal(custom.config.chat.openai.baseUrl, 'https://ai.example.org/v1');
+  assert.equal(custom.config.chat.model, 'my-model');
+  const noUrl = await makeSite({ env: { AI_API_KEY: 'k', AI_PROVIDER: 'custom' } });
+  t.after(() => noUrl.close());
+  assert.equal(noUrl.config.chat.ai, false, 'a custom provider needs an address and a model');
+  const plainHttp = await makeSite({ env: { AI_API_KEY: 'k', AI_PROVIDER: 'custom', AI_BASE_URL: 'http://ai.example.org', AI_MODEL: 'm' } });
+  t.after(() => plainHttp.close());
+  assert.equal(plainHttp.config.chat.ai, false, 'the key is only ever sent over https');
+});
+
+test('when both keys are set the Anthropic key is used', async (t) => {
+  const claude = fakeClaude(claudeSays('From Claude.'));
+  const site = await makeSite({ env: { ANTHROPIC_API_KEY: AI_KEY, AI_API_KEY: 'other' }, chat: { fetchImpl: claude.fetchImpl } });
+  t.after(() => site.close());
+  assert.equal(site.config.chat.provider, 'anthropic');
+  assert.match((await say(site, 'hello there, how much is parking?')).reply, /From Claude/);
+  assert.match(claude.calls[0].url, /anthropic\.com/);
+});
+
+test('if the free AI fails or is refused, the visitor gets the built-in answer and the operator is told why', async (t) => {
+  const { site } = await makeOpenaiSite(t, [() => json([{ error: { code: 429, message: 'quota', status: 'RESOURCE_EXHAUSTED' } }], 429)]);
+  const r = await say(site, 'how much does a car cost?');
+  assert.equal(r.mode, 'instant');
+  assert.match(r.reply, /₹/);
+  const status = site.app.locals.chat.status();
+  assert.match(status.problem.text, /rate or spending limit \(429\)/);
+  assert.ok(!JSON.stringify(status).includes('AIza-test-key'));
+  const bad = await makeOpenaiSite(t, [() => json({ error: { message: 'bad key' } }, 401)]);
+  await say(bad.site, 'how much does a car cost?');
+  assert.match(bad.site.app.locals.chat.status().problem.text, /AI_API_KEY/);
+});
+
+test('without any AI key the built-in answers are honest about what they know, and know about accounts and the time', async (t) => {
+  const site = await makeSite();
+  t.after(() => site.close());
+  const unknown = await say(site, 'who won the cricket world cup in 2011?');
+  assert.equal(unknown.mode, 'instant');
+  assert.match(unknown.reply, /not sure about that one/);
+  assert.match(unknown.reply, /only know about this parking lot/);
+  assert.match((await say(site, 'how do I create an account?')).reply, /account/i);
+  assert.ok((await say(site, 'how do I sign in')).actions.some((a) => a.href === '/login'));
+  assert.match((await say(site, 'what is the time now?')).reply, /Wednesday 14 Oct 2026, 10:00 am/i);
+  assert.match((await say(site, 'how are you?')).reply, /doing well/);
 });

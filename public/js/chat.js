@@ -284,7 +284,7 @@
 
     function welcomeNode() {
       const hello = ai
-        ? `Hi! I’m the ${siteName} assistant, an AI. I can help with prices, free bays, booking and refunds. What would you like to know?`
+        ? `Hi! I’m the ${siteName} assistant, an AI. I can help with prices, free bays, booking and refunds, and I can also answer general questions. What would you like to know?`
         : `Hi! I’m the ${siteName} assistant. I can help with prices, free bays, booking and refunds. What would you like to know?`;
       return h(
         'div',
