@@ -48,9 +48,9 @@ It is a website only (no phone app). It is built with Node.js and plain HTML, CS
 
 To stop the site press **Ctrl+C** in the terminal. To start it again run `npm start`.
 
-### Demo mode
+### Test mode without Razorpay keys
 
-With nothing else set up, the site runs in **demo mode**. Booking, saved bookings, the vehicle-number search and the dashboard all work, but the payment step is only simulated (you press a button on a demo page) and no money moves. A coloured strip at the top of every page says so.
+With nothing else set up, the site runs in **test mode**. Booking, saved bookings, the vehicle-number search and the dashboard all work, but the payment step is only simulated (you press a button on a test payment page) and no money moves. A coloured strip at the top of every page says so.
 
 ---
 
@@ -117,6 +117,23 @@ Open `/dashboard`. It asks for a user name (`operator`, or whatever you set in `
 
 “In use” on the dashboard means “has a paid booking right now”. No sensors or cameras are connected.
 
+### Accounts and roles (Admin and Customer)
+
+The site has two roles.
+
+| Role | Who | What they can do |
+| --- | --- | --- |
+| **Admin** | The lot operator. Signs in at `/login` with the user name `operator` (or `OPERATOR_USER`) and `OPERATOR_PASSWORD`. Nobody can become an admin by signing up. | Open `/dashboard` and `/analytics`, cancel and refund bookings, run the Setup check. |
+| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens `/dashboard` or `/analytics` gets "Operators only" (403). |
+
+By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off` lets anyone book without an account). Every booking made while signed in belongs to that customer, and the browser cannot choose whose booking it is. Passwords are kept only as scrypt hashes in `users.json` next to `bookings.json`; the sign-in is a signed, HttpOnly, SameSite cookie (`SESSION_SECRET` is optional: without it a random key is kept in the data folder). Wrong passwords are limited per connection and per account. Scripts can still use the operator password with HTTP Basic.
+
+A public test site (no Razorpay keys, `DEMO_PAYMENTS=on` in production) creates a test customer for itself, `customer@example.com` with the password `Customer@123`, and shows it on the sign-in page. It is never created once Razorpay keys are set, and `SEED_TEST_CUSTOMER=off` turns it off.
+
+### Analytics for the operator
+
+`/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). While payments are in test mode the page can add about two weeks of clearly marked **sample bookings** (all in the past, so they never block a bay) so the charts can be shown before real customers have booked, and remove them again.
+
 ### Cancelling a booking and refunding it
 
 Drivers cannot cancel on their own: there are no accounts, so the site cannot tell who is asking. You can, from the dashboard:
@@ -132,7 +149,7 @@ Good to know:
 - If Razorpay does not accept the refund, the booking is still cancelled and its bay is free, and it appears under **Needs attention** together with what Razorpay said. Fix the cause and press **Retry refund**. If you send the money back by hand in the Razorpay Dashboard instead, press **Retry refund** once afterwards: the site sees that the payment was already refunded and clears the entry.
 - If the server was stopped or restarted while a refund was being sent (an update does that), nobody knows whether the refund went through. The booking appears under **Needs attention** and says so. Press **Retry refund**. This is safe: Razorpay does not refund the same payment in full twice, so if the first try did get through, the booking is simply marked as refunded.
 - A cancelled and refunded booking is taken out of the money figures at the top of the dashboard. It stays in the Recent payments list, marked “Cancelled, refunded”.
-- In demo mode nothing was paid, so cancelling just cancels.
+- In test mode nothing was paid, so cancelling just cancels.
 - The cancel buttons are protected by the same operator password as the dashboard, so set one before the site goes online. They also only work from the dashboard page itself, so a link or form on another website cannot trigger a refund.
 
 ### The chat assistant
@@ -180,10 +197,13 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 
 | Setting | What it does | Default |
 |---|---|---|
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your Razorpay keys. Leave both empty for demo mode. | empty |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your Razorpay keys. Leave both empty for test mode (simulated payment). | empty |
 | `RAZORPAY_WEBHOOK_SECRET` | Secret for the optional webhook (section 6). | empty |
 | `DEMO_PAYMENTS` | For a public **demo** only (the free Render demo sets it). A site in production with no Razorpay keys normally switches booking off. With this set to `on` it simulates the payment instead, so everything can be tried at once. Once both Razorpay keys are set it does nothing. Never use it for real customers. | not set |
 | `OPERATOR_USER`, `OPERATOR_PASSWORD` | Log-in for `/dashboard`. | `operator`, empty |
+| `CUSTOMER_LOGIN_REQUIRED` | `off` lets anyone book without an account. | on |
+| `SESSION_SECRET` | Optional key that signs the sign-in cookies. Without it a random key is kept in the data folder. | not set |
+| `SEED_TEST_CUSTOMER` | `on` or `off`: the test customer for a public test site (see Accounts and roles). | on only where `DEMO_PAYMENTS` is on in production |
 | `SITE_NAME` | The name shown on every page (up to 40 characters). | `Bayfind` |
 | `SUPPORT_EMAIL` | Shown in the footer and in messages that say “contact us”. Empty means “ask at the parking office”. | empty |
 | `BUSINESS_NAME` | Your business name as it is on your Razorpay account. Shown on the Contact, Terms and Privacy pages (up to 80 characters). | the `SITE_NAME` |
@@ -290,7 +310,7 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 | “This site needs Node.js 20.12 or newer” | Install the current LTS version from <https://nodejs.org>. |
 | “Port 3000 is already in use” | Close the other program, or add `PORT=3001` to `.env`. |
 | You changed `.env` but nothing changed | Stop the site (Ctrl+C) and start it again. |
-| The pages say “Demo mode” although you added keys | Check that **both** keys are filled in, with no spaces or quotes, and that the file is named exactly `.env`. Windows Notepad often saves it as `.env.txt`. Use the `copy` command from section 2 instead, and in File Explorer turn on *View → File name extensions* to check. |
+| The pages say “Test mode: payments are simulated” although you added keys | Check that **both** keys are filled in, with no spaces or quotes, and that the file is named exactly `.env`. Windows Notepad often saves it as `.env.txt`. Use the `copy` command from section 2 instead, and in File Explorer turn on *View → File name extensions* to check. |
 | The terminal says “Authentication failed” from Razorpay | The Key Id and Key Secret do not belong together, or a test key is mixed with a live key. Generate the pair again. |
 | The Razorpay popup does not open, or is blank | Press **F12**, open the **Console** tab and look for a message that starts with “Refused to …”. That means the browser's security rules blocked something Razorpay needs. Add `DISABLE_CSP=1` to `.env` and restart to confirm it is the cause. Then add the blocked address to the policy in `src/app.js` (the function `securityHeaders`) and turn `DISABLE_CSP` off again, because leaving it on removes a protection. |
 | A driver paid but has no booking | Wait a few minutes: the site re-checks unconfirmed payments about a minute after the hold ends. The terminal log says what it found. If the booking still does not appear, refund the payment from the Razorpay Dashboard. |

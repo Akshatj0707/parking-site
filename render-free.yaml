@@ -29,7 +29,7 @@ services:
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
-    autoDeployTrigger: "off"     # an update goes live only when you press Deploy
+    autoDeployTrigger: "commit"  # every push to this branch goes live by itself (this is a test site)
     envVars:
       - key: NODE_VERSION
         value: "24.22.1"
