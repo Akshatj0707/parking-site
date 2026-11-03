@@ -473,3 +473,11 @@ a[href^="tel:"] { white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ===== Account links in the header, and the My bookings list ===== */
+.nav .nav-auth { padding: 12px 0; color: inherit; font: inherit; font-weight: 500; background: none; border: 0; cursor: pointer; text-decoration: none; }
+.nav .nav-auth:hover { text-decoration: underline; }
+.my-bookings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.my-booking { border: 2px solid var(--border); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+.my-booking-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 18px; }
+.my-booking p { margin: 0; }

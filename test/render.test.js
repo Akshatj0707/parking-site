@@ -326,10 +326,11 @@ test('render-free.yaml runs the same site on Render\'s free size, with no disk',
   assert.equal(free.plan, 'free');
   assert.ok(!('disk' in free), 'the free size cannot have a disk');
   // How the site is built, started and checked is the same as in render.yaml.
-  for (const key of ['type', 'runtime', 'buildCommand', 'startCommand', 'healthCheckPath', 'autoDeployTrigger']) {
+  for (const key of ['type', 'runtime', 'buildCommand', 'startCommand', 'healthCheckPath']) {
     assert.equal(free[key], paid[key], `${key} is the same as in render.yaml`);
   }
   assert.notEqual(free.name, paid.name, 'the demo cannot be mistaken for the real site in the same Render account');
+  assert.equal(free.autoDeployTrigger, 'commit', 'the test site updates itself on every push; the real site (render.yaml) waits for the owner');
 });
 
 test('render-free.yaml needs nothing typed: no form boxes, a password that Render makes up, and no secrets in the file', () => {
@@ -411,7 +412,7 @@ test('render-free.yaml saves bookings in a temporary folder, and the site says p
   assert.equal(c.trustProxy, 1);
   assert.equal(c.host, '0.0.0.0');
   // The warning in the dashboard's Setup check explains that this is expected on the free size.
-  assert.match(read('public/js/dashboard.js'), /Exception: the free demo \(render-free\.yaml\) has no disk, so there this is expected: leave DATA_DIR as it is/);
+  assert.match(read('public/js/dashboard.js'), /Exception: the free test site \(render-free\.yaml\) has no disk, so there this is expected: leave DATA_DIR as it is/);
 });
 
 test('every setting in render-free.yaml is one the site reads, and is in .env.example', () => {
@@ -426,7 +427,7 @@ test('every setting in render-free.yaml is one the site reads, and is in .env.ex
 
 test('the guide and the README explain the free demo and what it cannot do', () => {
   const guide = read('DEPLOY-RENDER.md');
-  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys', 'no boxes', 'DEMO_PAYMENTS', 'OPERATOR_PASSWORD', 'Environment', 'free-demo', 'Demo mode', 'Test mode']) {
+  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys', 'no boxes', 'DEMO_PAYMENTS', 'OPERATOR_PASSWORD', 'Environment', 'free-demo', 'Test mode']) {
     assert.ok(guide.includes(word), `the guide mentions ${word}`);
   }
   // Every setting that the free file makes up or fixes is explained somewhere a reader will look.

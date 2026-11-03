@@ -1,0 +1,49 @@
+/* The operator's analytics page. Uses the colours and classes of styles.css. */
+.an-controls { flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 20px 32px; }
+.an-toggles { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.an-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
+
+/* Buttons that act as a choice: one is always pressed */
+.seg { display: inline-flex; flex-wrap: wrap; border: 2px solid var(--navy); border-radius: 24px; overflow: hidden; background: #fff; }
+.seg button { min-height: 44px; padding: 0 16px; font: inherit; font-size: 15px; font-weight: 700; background: transparent; color: var(--navy); border: 0; cursor: pointer; }
+.seg button + button { border-left: 2px solid var(--navy); }
+.seg button[aria-pressed='true'] { background: var(--navy); color: #fff; }
+.seg button:focus-visible { outline: 3px solid var(--blue); outline-offset: -4px; }
+.seg button[aria-pressed='true']:focus-visible { outline-color: var(--accent); }
+
+/* Charts: drawn as SVG by analytics.js. On a narrow screen the chart scrolls sideways instead of shrinking the text. */
+.chart { overflow-x: auto; padding-bottom: 4px; }
+.chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.chart .grid { stroke: var(--track); stroke-width: 1; }
+.chart .base { stroke: var(--border-strong); stroke-width: 1.5; }
+.chart .tick { font: 12px var(--font-body); fill: var(--muted); }
+.chart .tick-y { text-anchor: end; }
+.chart .tick-x { text-anchor: middle; }
+.chart .bar { fill: var(--blue); }
+.chart .bar.peak { fill: var(--accent); stroke: var(--navy); stroke-width: 2; }
+.chart .bar-label { font: 700 13px var(--font-body); fill: var(--navy); text-anchor: middle; }
+.chart .empty { font: 600 16px var(--font-body); fill: var(--muted); text-anchor: middle; }
+
+/* Cars and two-wheelers: one stacked bar and a plain-words legend */
+.split { display: flex; height: 36px; border-radius: 10px; overflow: hidden; background: var(--track); }
+.split span { display: block; height: 100%; }
+.split .car { background: var(--navy); }
+.split .bike { background: var(--blue-bar); }
+.legend { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.legend li { display: flex; align-items: baseline; gap: 10px; font-size: 16px; }
+.legend .swatch { flex: none; width: 14px; height: 14px; border-radius: 4px; transform: translateY(2px); }
+.legend .swatch.car { background: var(--navy); }
+.legend .swatch.bike { background: var(--blue-bar); border: 1px solid var(--navy-3); }
+.split-title { font-weight: 700; }
+
+.an-details summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.an-details .table { margin-top: 8px; }
+.an-details td, .an-details th { font-variant-numeric: tabular-nums; }
+.an-peak-row { background: #fff7d1; font-weight: 700; }
+
+.scroll-hint { display: none; }
+@media (max-width: 640px) { .scroll-hint { display: block; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chart .bar { transition: fill 0.2s ease; }
+}
