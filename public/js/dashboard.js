@@ -21,6 +21,7 @@
   let attentionKey = null;
   let recentKey = null;
 
+  const shownId = (id) => (id ? String(id).replace(/^demo_/, 'test_') : '–');
   const hourLabel = (hour) => (hour % 12 || 12) + (hour < 12 ? ' am' : ' pm');
   const bays = (n) => `${n} ${n === 1 ? 'bay' : 'bays'}`;
 
@@ -150,7 +151,7 @@
             'div',
             { class: 'banner bad' },
             h('b', null, 'Refund needed. '),
-            `${r.plate}, bay ${r.bay}, ${rupees(r.amount)}. Razorpay payment ${r.paymentId}. `,
+            `${r.plate}, bay ${r.bay}, ${rupees(r.amount)}. Razorpay payment ${shownId(r.paymentId)}. `,
             r.refundInterrupted
               ? INTERRUPTED_TEXT
               : `${r.refundError ? `Razorpay said: ${r.refundError}. ` : ''}Try the refund again, or send it from the Razorpay dashboard.`,
@@ -182,7 +183,7 @@
             h('td', null, r.window),
             h('td', { class: 'num' }, rupees(r.amount)),
             h('td', null, h('span', { class: 'badge ' + r.status }, statusText(r))),
-            h('td', { class: 'mono' }, r.paymentId || '–'),
+            h('td', { class: 'mono' }, shownId(r.paymentId)),
             h(
               'td',
               null,
@@ -238,7 +239,7 @@
         h('div', { class: 'stack g8' }, h('h3', { class: 'cancel-plate' }, b.plate), h('p', { class: 'fine' }, `${b.vehicleLabel}, bay ${b.bay} (${b.zone})`)),
         pillFor(b)
       ),
-      h('dl', { class: 'cancel-facts' }, fact('Booked for', b.window), fact('Amount paid', amount), fact('Booking reference', b.ref), fact('Razorpay payment', b.paymentId || '–')),
+      h('dl', { class: 'cancel-facts' }, fact('Booked for', b.window), fact('Amount paid', amount), fact('Booking reference', b.ref), fact('Razorpay payment', shownId(b.paymentId))),
       b.refundInterrupted ? h('p', { class: 'msg err' }, INTERRUPTED_TEXT) : b.refundError ? h('p', { class: 'msg err' }, `Razorpay said: ${b.refundError}`) : null,
       actions
     );

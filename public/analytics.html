@@ -5,13 +5,127 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Analytics · {{SITE_NAME}}</title>
+  <meta name="theme-color" content="#0b1530">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/fonts.css">
   <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/analytics.css">
 </head>
 <body>
-<main id="main" class="wrap main-pad"><h1 class="h1">Analytics</h1></main>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to see the analytics.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}<span class="brand-sub">Operator</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/analytics" aria-current="page">Analytics</a>
+      <a class="nav-cta" href="/book">Booking page</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad">
+  <div class="dash-head rise">
+    <div class="stack g8">
+      <p class="eyebrow">Analytics</p>
+      <h1 class="h1">Collection and busy hours</h1>
+    </div>
+    <p class="updated" id="updated" role="status">Loading…</p>
+  </div>
+
+  <div class="stack g12" id="notice" aria-live="polite"></div>
+
+  <section class="panel an-controls" aria-label="Choose the day and the period">
+    <div class="field field-narrow">
+      <label class="label" for="an-date">Day</label>
+      <input class="input" id="an-date" type="date">
+    </div>
+    <div class="field">
+      <span class="label" id="range-label">Period for the charts</span>
+      <div class="seg" role="group" aria-labelledby="range-label" id="an-range"></div>
+    </div>
+  </section>
+
+  <section class="tiles" id="an-tiles" aria-label="Key numbers"></section>
+
+  <section class="panel" aria-labelledby="hours-title">
+    <div class="panel-head">
+      <h2 id="hours-title">Busiest hours</h2>
+      <p class="fine" id="hours-note"></p>
+    </div>
+    <div class="an-toggles">
+      <div class="seg" role="group" aria-label="What to count" id="an-metric"></div>
+      <div class="seg" role="group" aria-label="Which vehicles" id="an-vehicle"></div>
+      <div class="seg" role="group" aria-label="Which days" id="an-scope"></div>
+    </div>
+    <p class="fine scroll-hint">Swipe sideways to see the whole chart.</p>
+    <div class="chart" id="chart-hours"></div>
+    <details class="an-details">
+      <summary>Show these numbers as a table</summary>
+      <div class="table-wrap" id="hours-table"></div>
+    </details>
+  </section>
+
+  <section class="panel" aria-labelledby="daily-title">
+    <div class="panel-head">
+      <h2 id="daily-title">Money collected each day</h2>
+      <p class="fine" id="daily-note"></p>
+    </div>
+    <p class="fine scroll-hint">Swipe sideways to see the whole chart.</p>
+    <div class="chart" id="chart-daily"></div>
+  </section>
+
+  <div class="an-cols">
+    <section class="panel" aria-labelledby="split-title">
+      <h2 id="split-title">Cars and two-wheelers</h2>
+      <div class="stack g16" id="split"></div>
+    </section>
+    <section class="panel" aria-labelledby="ins-title">
+      <h2 id="ins-title">What stands out</h2>
+      <ul class="plain-list" id="insights"></ul>
+    </section>
+  </div>
+
+  <section class="panel" id="sample-panel" aria-labelledby="sample-title" hidden>
+    <div class="panel-head">
+      <h2 id="sample-title">Sample bookings</h2>
+      <p class="fine">For showing the page before real customers have booked</p>
+    </div>
+    <p class="muted" id="sample-text"></p>
+    <div class="row" id="sample-buttons"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="read-title">
+    <h2 id="read-title">How to read this page</h2>
+    <ul class="plain-list">
+      <li><b>Money collected</b> counts the payments received on that day, in rupees, on the lot's clock. A booking that was cancelled and refunded is taken out.</li>
+      <li><b>Vehicles parked</b> is worked out from bookings, not from sensors: a vehicle counts for the part of the hour that its paid booking covers. For a period of several days it is the average for one day.</li>
+      <li><b>Arrivals</b> are paid bookings that start in that hour (an average per day for a period of several days).</li>
+      <li>The busiest hour is shown in yellow with an outline. The same numbers are in the table below each chart.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Operator analytics</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
 <script src="/js/shared.js"></script>
 <script src="/js/common.js"></script>
+<script src="/js/analytics.js"></script>
 </body>
 </html>

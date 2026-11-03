@@ -158,9 +158,9 @@ function analytics(bookings, { now, config, query = {} }) {
       (before && before.payments ? ` That is ${todayRow.paise >= before.paise ? inr(rupees(todayRow.paise - before.paise)) + ' more' : inr(rupees(before.paise - todayRow.paise)) + ' less'} than ${before.label}.` : ''));
     if (peak) {
       insights.push(`Busiest time: ${peak.label}, with about ${Math.max(1, Math.round(peak.parked))} vehicle${Math.round(peak.parked) === 1 ? '' : 's'} parked at once on an average day (${peak.utilisation}% of all ${TOTAL_BAYS} bays).`);
-      if (peak.window.to - peak.window.from > 1) insights.push(`The rush lasts about ${peak.window.label}.`);
+      if (peak.window.to - peak.window.from > 1) insights.push(`The busy stretch is about ${peak.window.label}.`);
     }
-    if (mostArrivals) insights.push(`Most vehicles arrive between ${mostArrivals.label}, about ${mostArrivals.arrivals.total} a day.`);
+    if (mostArrivals) insights.push(`Most vehicles arrive between ${hourName(mostArrivals.hour)} and ${hourName((mostArrivals.hour + 1) % 24)}, about ${mostArrivals.arrivals.total} a day.`);
     if (best && days > 1) insights.push(`Best day in the last ${days} days: ${best.label}, ${inr(rupees(best.paise))}.`);
   }
 
