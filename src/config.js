@@ -43,6 +43,20 @@ function loadConfig(env = process.env) {
   // answer with the Claude AI model instead (and fall back to the built-in answers whenever the AI cannot be reached).
   const chatEnabled = !/^(0|false|no|off)$/i.test(String(env.CHAT_ENABLED || '').trim());
   const chatKey = String(env.ANTHROPIC_API_KEY || '').trim();
+  // A second way to get AI answers, with a FREE key: any service that speaks the OpenAI chat format. Presets were checked
+  // against the providers' own documentation: Google Gemini (ai.google.dev/gemini-api/docs/openai) and Groq (console.groq.com/docs/openai).
+  const AI_PRESETS = {
+    gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash', label: 'Google Gemini' },
+    groq: { baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', label: 'Groq' },
+    custom: { baseUrl: '', model: '', label: 'the AI service' },
+  };
+  const aiKey = String(env.AI_API_KEY || '').trim();
+  const aiProviderName = String(env.AI_PROVIDER || 'gemini').trim().toLowerCase();
+  const aiPreset = AI_PRESETS[aiProviderName] || AI_PRESETS.gemini;
+  const aiBaseUrl = (String(env.AI_BASE_URL || '').trim() || aiPreset.baseUrl).replace(/\/+$/, '');
+  const aiModel = String(env.AI_MODEL || '').trim() || aiPreset.model;
+  // Anthropic wins when both keys are set.
+  const provider = chatKey ? 'anthropic' : aiKey && /^https:\/\//.test(aiBaseUrl) && aiModel ? 'openai' : null;
   const chatDailyLimit = Math.floor(number(env.CHAT_DAILY_LIMIT, 500));
 
   const demoPayments = /^(1|true|yes|on)$/i.test(String(env.DEMO_PAYMENTS || '').trim());
@@ -98,12 +112,16 @@ function loadConfig(env = process.env) {
     chat: {
       enabled: chatEnabled,
       apiKey: chatKey,
-      model: String(env.CHAT_MODEL || '').trim() || 'claude-haiku-5-5',
+      model: provider === 'openai' ? aiModel : String(env.CHAT_MODEL || '').trim() || 'claude-haiku-5-5',
       // The most AI answers in one day for the whole site, counted on the lot's clock. Past it the chat goes on with the
       // built-in answers until the next day. 0 turns the AI off even when a key is set.
       dailyLimit: chatDailyLimit,
       // True when visitors' questions can be sent to the AI.
-      ai: chatEnabled && Boolean(chatKey) && chatDailyLimit > 0,
+      ai: chatEnabled && Boolean(provider) && chatDailyLimit > 0,
+      // Who answers: 'anthropic', 'openai' (any OpenAI-compatible service, see AI_PROVIDER) or null (built-in answers only).
+      provider,
+      providerLabel: provider === 'anthropic' ? 'Anthropic Claude' : provider === 'openai' ? aiPreset.label : null,
+      openai: { apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel },
     },
 
     // Rupees per hour. Change them here or with the RATE_* lines in .env.

@@ -412,7 +412,7 @@ test('the setup check tells the operator how the chat answers, with no secret an
   assert.equal((await site.get('/api/dashboard/connection')).status, 401, 'operator only');
 
   let r = await site.get('/api/dashboard/connection', { headers: good });
-  assert.deepEqual(r.json.chat, { enabled: true, mode: 'ai', model: 'claude-haiku-5-5', aiToday: 0, instantToday: 0, dailyLimit: 500, keyLooksWrong: false, problem: null });
+  assert.deepEqual(r.json.chat, { enabled: true, mode: 'ai', model: 'claude-haiku-5-5', aiToday: 0, instantToday: 0, dailyLimit: 500, provider: 'anthropic', keyLooksWrong: false, problem: null });
 
   await say(site, 'my secret question about MP09AB1234');
   r = await site.get('/api/dashboard/connection', { headers: good });
@@ -426,7 +426,7 @@ test('the setup check tells the operator how the chat answers, with no secret an
 test('the setup check says "instant" without a key, "off" when the chat is off, and flags a key that looks wrong', async (t) => {
   const plain = await instantSite(t, { OPERATOR_PASSWORD: 'correct horse' });
   assert.deepEqual((await plain.get('/api/dashboard/connection', { headers: good })).json.chat, {
-    enabled: true, mode: 'instant', model: null, aiToday: 0, instantToday: 0, dailyLimit: 500, keyLooksWrong: false, problem: null,
+    enabled: true, mode: 'instant', model: null, aiToday: 0, instantToday: 0, dailyLimit: 500, provider: null, keyLooksWrong: false, problem: null,
   });
   const off = await instantSite(t, { OPERATOR_PASSWORD: 'correct horse', CHAT_ENABLED: 'off' });
   assert.equal((await off.get('/api/dashboard/connection', { headers: good })).json.chat.mode, 'off');
