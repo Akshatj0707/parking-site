@@ -33,7 +33,7 @@ test('a customer can sign up, and is then signed in as a customer', async (t) =>
 
   const { r, cookie } = await signUp(site);
   assert.equal(r.status, 201);
-  assert.deepEqual(r.json.user, { role: 'customer', name: 'Asha Verma', email: 'asha.verma@example.com' });
+  assert.deepEqual(r.json.user, { role: 'customer', name: 'Asha Verma', email: 'asha.verma@example.com', permissions: ['booking:create', 'booking:view-own'] });
   assert.equal(r.json.next, '/account');
   const flags = r.headers.getSetCookie()[0];
   assert.match(flags, /HttpOnly/);
@@ -255,23 +255,24 @@ test('without the login requirement a guest can still book, and the booking belo
   assert.equal((await site.get('/api/config')).json.auth.loginRequired, false);
 });
 
-test('the test site creates a test customer for itself, but never once Razorpay keys are set', async (t) => {
-  const test_site = await makeSite({ env: { ...OP, NODE_ENV: 'production', DEMO_PAYMENTS: 'on' } });
-  t.after(() => test_site.close());
-  const cfg = (await test_site.get('/api/config')).json.auth;
+test('no test account exists on a real site; one is only made when it is asked for, and never once Razorpay keys are set', async (t) => {
+  const plain = await makeSite({ env: { ...OP, NODE_ENV: 'production' } });
+  t.after(() => plain.close());
+  assert.equal((await plain.get('/api/config')).json.auth.testCustomer, null, 'nothing is published on a site in production');
+  assert.equal((await plain.post('/api/auth/login', { identifier: 'customer@example.com', password: 'Customer@123' })).status, 401);
+
+  const asked = await makeSite({ env: { ...OP, SEED_TEST_CUSTOMER: 'on' } });
+  t.after(() => asked.close());
+  const cfg = (await asked.get('/api/config')).json.auth;
   assert.deepEqual(cfg.testCustomer, { email: 'customer@example.com', password: 'Customer@123' });
-  const login = await test_site.post('/api/auth/login', { identifier: cfg.testCustomer.email, password: cfg.testCustomer.password });
+  const login = await asked.post('/api/auth/login', { identifier: cfg.testCustomer.email, password: cfg.testCustomer.password });
   assert.equal(login.status, 200);
   assert.equal(login.json.user.role, 'customer');
 
-  const real = await makeSite({ razorpayKeys: true, env: { ...OP, NODE_ENV: 'production', DEMO_PAYMENTS: 'on' } });
+  const real = await makeSite({ razorpayKeys: true, env: { ...OP, NODE_ENV: 'production', SEED_TEST_CUSTOMER: 'on' } });
   t.after(() => real.close());
   assert.equal((await real.get('/api/config')).json.auth.testCustomer, null);
   assert.equal((await real.post('/api/auth/login', { identifier: 'customer@example.com', password: 'Customer@123' })).status, 401);
-
-  const off = await makeSite({ env: { ...OP, NODE_ENV: 'production', DEMO_PAYMENTS: 'on', SEED_TEST_CUSTOMER: 'off' } });
-  t.after(() => off.close());
-  assert.equal((await off.get('/api/config')).json.auth.testCustomer, null);
 });
 
 test('accounts survive a restart when the data folder does', async (t) => {

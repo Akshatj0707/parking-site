@@ -59,9 +59,18 @@ function loadConfig(env = process.env) {
   const provider = chatKey ? 'anthropic' : aiKey && /^https:\/\//.test(aiBaseUrl) && aiModel ? 'openai' : null;
   const chatDailyLimit = Math.floor(number(env.CHAT_DAILY_LIMIT, 500));
 
-  const demoPayments = /^(1|true|yes|on)$/i.test(String(env.DEMO_PAYMENTS || '').trim());
   const isOff = (value) => /^(0|false|no|off)$/i.test(String(value || '').trim());
   const isOn = (value) => /^(1|true|yes|on)$/i.test(String(value || '').trim());
+  // DEMO_PAYMENTS used to make a public site pretend to take payments. That switch is gone: a site in production only ever
+  // takes real Razorpay payments (test keys give Razorpay's own test window, live keys take real money). The setting is
+  // ignored, and the server says so once at start-up if it is still set.
+  const demoSettingIgnored = isOn(env.DEMO_PAYMENTS);
+  // On Render: is the bookings folder on the disk (true), or somewhere that is wiped at every restart (false)?
+  // Nothing is known about other hosts, so there it is null.
+  const dataOnRenderDisk = onRender ? isInside(dataDir, RENDER_DISK_PATH) : null;
+  // Live keys on a host that forgets its files (Render's free size) would take real money and then lose the bookings.
+  // Booking is switched off in that case, and the operator's dashboard says why.
+  const unsafeLiveStorage = live && onRender && dataOnRenderDisk === false;
 
   return {
     production,
@@ -71,15 +80,11 @@ function loadConfig(env = process.env) {
     trustProxy: trustProxy ? (/^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy) : onRender ? 1 : false,
     dataDir,
     onRender,
-    // On Render: is the bookings folder on the disk (true), or somewhere that is wiped at every restart (false)?
-    // Nothing is known about other hosts, so there it is null.
-    dataOnRenderDisk: onRender ? isInside(dataDir, RENDER_DISK_PATH) : null,
+    dataOnRenderDisk,
+    unsafeLiveStorage,
+    demoSettingIgnored,
     // Escape hatch: if a browser's security rules ever block the Razorpay popup, set DISABLE_CSP=1 and restart.
     disableCsp: /^(1|true|yes)$/i.test(String(env.DISABLE_CSP || '').trim()),
-    // For a public DEMO only (render-free.yaml sets it). With no Razorpay keys, a site in production normally switches
-    // booking off; with this on it simulates the payment instead (demo mode), so the whole site works at once. Razorpay keys
-    // always win: once both are set the real Razorpay checkout is used and this setting does nothing.
-    demoPayments,
 
     siteName,
     supportEmail: String(env.SUPPORT_EMAIL || '').trim(),
@@ -105,9 +110,9 @@ function loadConfig(env = process.env) {
       customerLoginRequired: !isOff(env.CUSTOMER_LOGIN_REQUIRED),
       // Signs the sign-in cookies. Optional: when empty, a random key is kept next to the bookings.
       sessionSecret: String(env.SESSION_SECRET || '').trim(),
-      // A public test site (no Razorpay keys) creates a test customer, so a visitor can try it at once. SEED_TEST_CUSTOMER
-      // turns that on or off; by default it is on only where DEMO_PAYMENTS is on in production.
-      seedTestCustomer: !(keyId && keySecret) && !isOff(env.SEED_TEST_CUSTOMER) && (isOn(env.SEED_TEST_CUSTOMER) || (production && demoPayments)),
+      // For trying the site on your own computer: SEED_TEST_CUSTOMER=on creates a customer with a published password. It is
+      // never created when Razorpay keys are set (a real site), and it is off unless asked for.
+      seedTestCustomer: !(keyId && keySecret) && isOn(env.SEED_TEST_CUSTOMER),
     },
     chat: {
       enabled: chatEnabled,

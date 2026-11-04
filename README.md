@@ -12,9 +12,9 @@ It is set up for one lot with **200 four-wheeler bays** and **250 two-wheeler ba
 **What you get**
 
 - **Book a bay** (`/book`): choose 4-wheeler or 2-wheeler, type the vehicle number, pick a day, a start time and 1 to 4 hours, pick a bay (or let the site choose one) and pay.
-- **Razorpay checkout**: the real Razorpay payment popup, in free test mode (no real money) or live mode.
+- **Razorpay checkout**: the real Razorpay payment popup, in free test mode (no real money) or live mode. There is no pretend payment on a live site: without Razorpay keys, booking is switched off.
 - **Find my booking** (`/lookup`): type a vehicle number to see its current and upcoming bookings with the bay and the time.
-- **Operator dashboard** (`/dashboard`): free and used bays, today's payments and revenue, a bay map, busy hours, recent payments, and a list of anything that needs your attention.
+- **Admin pages** (sign in at `/login` as the admin): **Dashboard** (`/dashboard`: free and used bays, today's payments, a bay map, anything that needs attention), **Business** (`/business`: money collected today, this week, this month and all time, how full the lot is, repeat customers, best weekdays and months, top customers, the Razorpay connection, who can do what), **Bookings** (`/bookings`: every booking with search, filters, a spreadsheet download and cancel-and-refund), **Customers** (`/customers`: every account with what each has spent) and **Analytics** (`/analytics`: money per day and the busiest hours).
 - **Cancel and refund** (on the dashboard): type a vehicle number, confirm, and the bay is freed and the full amount goes back to the driver through Razorpay.
 - **Policy pages** (`/pricing`, `/terms`, `/privacy`, `/refunds`, `/shipping`, `/contact`): plain-language pages that Razorpay checks for before it allows live payments. They fill in your prices, hold time and business details by themselves. Read them and adjust them to how you really run the lot (sections 7 and 8).
 - **Chat assistant** (the yellow **Ask us** button in the corner of the public pages): drivers ask about prices, free bays, how to book, how to find a booking, refunds and how to reach the lot. It works at once with built-in answers made from your own settings and the live bay count. Add an Anthropic key and an AI writes the answers instead (section 3, “The chat assistant”). It cannot book, cancel or refund anything, and it never sees a booking.
@@ -48,9 +48,9 @@ It is a website only (no phone app). It is built with Node.js and plain HTML, CS
 
 To stop the site press **Ctrl+C** in the terminal. To start it again run `npm start`.
 
-### Test mode without Razorpay keys
+### Without Razorpay keys
 
-With nothing else set up, the site runs in **test mode**. Booking, saved bookings, the vehicle-number search and the dashboard all work, but the payment step is only simulated (you press a button on a test payment page) and no money moves. A coloured strip at the top of every page says so.
+On your own computer, with nothing else set up, the payment step is only **simulated** (you press a button on a payment page) so that you can try the pages, and a coloured strip says so. A site that runs with `NODE_ENV=production` (which every hosting guide here sets) **never** pretends: with no Razorpay keys, booking is switched off, the booking page says it is temporarily unavailable, and the admin's pages say what to add.
 
 ---
 
@@ -69,7 +69,7 @@ With nothing else set up, the site runs in **test mode**. Booking, saved booking
    RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
    ```
 
-6. Stop the site (Ctrl+C) and start it again (`npm start`). The terminal now says **TEST MODE**, and the strip on the pages says “Test mode: payments use Razorpay test cards”.
+6. Stop the site (Ctrl+C) and start it again (`npm start`). The terminal now says **TEST MODE**, and the strip on the pages says “Razorpay test payments: use Razorpay’s test cards, no real money is taken”.
 
 Make a booking. When the Razorpay popup opens, pay with a **test card**:
 
@@ -123,16 +123,16 @@ The site has two roles.
 
 | Role | Who | What they can do |
 | --- | --- | --- |
-| **Admin** | The lot operator. Signs in at `/login` with the user name `operator` (or `OPERATOR_USER`) and `OPERATOR_PASSWORD`. Nobody can become an admin by signing up. | Open `/dashboard` and `/analytics`, cancel and refund bookings, run the Setup check. |
-| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens `/dashboard` or `/analytics` gets "Operators only" (403). |
+| **Admin** (the owner) | The lot operator. Signs in at `/login` with the user name `operator` (or `OPERATOR_USER`) and `OPERATOR_PASSWORD`. Nobody can become an admin by signing up. | **Everything**: see every booking and every customer, search and download bookings as a spreadsheet, see the money collected and the busiest times, cancel and refund bookings, see the Razorpay connection and run the Setup check. |
+| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens an admin page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Operators only" (403), and the admin's data requests answer 403 too. |
 
 By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off` lets anyone book without an account). Every booking made while signed in belongs to that customer, and the browser cannot choose whose booking it is. Passwords are kept only as scrypt hashes in `users.json` next to `bookings.json`; the sign-in is a signed, HttpOnly, SameSite cookie (`SESSION_SECRET` is optional: without it a random key is kept in the data folder). Wrong passwords are limited per connection and per account. Scripts can still use the operator password with HTTP Basic.
 
-A public test site (no Razorpay keys, `DEMO_PAYMENTS=on` in production) creates a test customer for itself, `customer@example.com` with the password `Customer@123`, and shows it on the sign-in page. It is never created once Razorpay keys are set, and `SEED_TEST_CUSTOMER=off` turns it off.
+To try the site on your own computer, `SEED_TEST_CUSTOMER=on` creates a customer, `customer@example.com` with the password `Customer@123`, and shows it on the sign-in page. It is never created once Razorpay keys are set, and it is off unless you ask for it.
 
 ### Analytics for the operator
 
-`/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). While payments are in test mode the page can add about two weeks of clearly marked **sample bookings** (all in the past, so they never block a bay) so the charts can be shown before real customers have booked, and remove them again.
+`/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). On your own computer (simulated payments only) the page can add about two weeks of clearly marked **sample bookings**; a live site never offers them, so its numbers are always real.
 
 ### Free AI answers for the chat (any question)
 
@@ -206,13 +206,12 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 
 | Setting | What it does | Default |
 |---|---|---|
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your Razorpay keys. Leave both empty for test mode (simulated payment). | empty |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your Razorpay keys. Required for payments. With both empty, a site in production switches booking off (on your own computer the payment is only simulated). Live keys (`rzp_live_…`) also switch booking off on storage that is wiped at every restart (Render's free size). | empty |
 | `RAZORPAY_WEBHOOK_SECRET` | Secret for the optional webhook (section 6). | empty |
-| `DEMO_PAYMENTS` | For a public **demo** only (the free Render demo sets it). A site in production with no Razorpay keys normally switches booking off. With this set to `on` it simulates the payment instead, so everything can be tried at once. Once both Razorpay keys are set it does nothing. Never use it for real customers. | not set |
-| `OPERATOR_USER`, `OPERATOR_PASSWORD` | Log-in for `/dashboard`. | `operator`, empty |
+| `OPERATOR_USER`, `OPERATOR_PASSWORD` | The admin's sign-in (for `/login` and every admin page). | `operator`, empty |
 | `CUSTOMER_LOGIN_REQUIRED` | `off` lets anyone book without an account. | on |
 | `SESSION_SECRET` | Optional key that signs the sign-in cookies. Without it a random key is kept in the data folder. | not set |
-| `SEED_TEST_CUSTOMER` | `on` or `off`: the test customer for a public test site (see Accounts and roles). | on only where `DEMO_PAYMENTS` is on in production |
+| `SEED_TEST_CUSTOMER` | `on` makes a test customer with a published password, for trying the site on your own computer (see Accounts and roles). Never made with Razorpay keys set. | off |
 | `SITE_NAME` | The name shown on every page (up to 40 characters). | `Bayfind` |
 | `SUPPORT_EMAIL` | Shown in the footer and in messages that say “contact us”. Empty means “ask at the parking office”. | empty |
 | `BUSINESS_NAME` | Your business name as it is on your Razorpay account. Shown on the Contact, Terms and Privacy pages (up to 80 characters). | the `SITE_NAME` |
@@ -271,7 +270,7 @@ Razorpay cannot reach `localhost`, so set this up after the site is online:
 
 **The easy way: a small server with automatic HTTPS.** [`DEPLOY.md`](DEPLOY.md) is a step-by-step guide for someone who has never run a server. It uses an ordinary Ubuntu or Debian server and the scripts in the `deploy/` folder. One command installs Node.js and the Caddy web server (which gets and renews the HTTPS certificate by itself), starts the site so that it comes back after a crash or a reboot, opens only the ports the site needs, and makes a copy of your bookings every night. Updating later means uploading the new zip and running one script, and a version that does not start is rolled back by itself.
 
-**Render (render.com): no server to look after.** [`DEPLOY-RENDER.md`](DEPLOY-RENDER.md) is a step-by-step guide that goes as far as real Razorpay payments. You put the folder on GitHub, and the file `render.yaml` tells Render to build the site, keep a small disk for the bookings and check `/healthz`. Render gives the HTTPS padlock by itself. It needs the paid size (about $7 a month, plus $0.25 for the disk): the free size forgets all files at every restart. For a no-cost demo, `render-free.yaml` sets the site up on the free size instead, with nothing to type: Render makes up the dashboard password itself, and the payment is simulated (`DEMO_PAYMENTS`) until you add Razorpay test keys. That size goes to sleep after 15 minutes without visitors and forgets every booking whenever it sleeps, restarts or is updated, so it is never for real customers (see “A free demo first” in `DEPLOY-RENDER.md`). On Render the site chooses two settings by itself: `TRUST_PROXY` is `1`, and the bookings go in the disk's `test` folder while Razorpay test keys are in use and in its `live` folder once live keys are, so test bookings never mix with real ones. The dashboard's **Setup check** shows the proxy number the host really needs and whether the bookings are on the disk.
+**Render (render.com): no server to look after.** [`DEPLOY-RENDER.md`](DEPLOY-RENDER.md) is a step-by-step guide that goes as far as real Razorpay payments. You put the folder on GitHub, and the file `render.yaml` tells Render to build the site, keep a small disk for the bookings and check `/healthz`. Render gives the HTTPS padlock by itself. It needs the paid size (about $7 a month, plus $0.25 for the disk): the free size forgets all files at every restart. For a no-cost demo, `render-free.yaml` sets the site up on the free size instead, with nothing to type: Render makes up the admin password itself, and booking stays off until you add Razorpay test keys (nothing is pretended). That size goes to sleep after 15 minutes without visitors and forgets every booking whenever it sleeps, restarts or is updated, so it is never for real customers (see “A free demo first” in `DEPLOY-RENDER.md`). On Render the site chooses two settings by itself: `TRUST_PROXY` is `1`, and the bookings go in the disk's `test` folder while Razorpay test keys are in use and in its `live` folder once live keys are, so test bookings never mix with real ones. The dashboard's **Setup check** shows the proxy number the host really needs and whether the bookings are on the disk.
 
 **Any other host.** You need a host that
 

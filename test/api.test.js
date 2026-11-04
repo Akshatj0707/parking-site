@@ -32,7 +32,7 @@ test('with Razorpay keys the site publishes the key id and never a secret', asyn
   const s = await site(t, { razorpayKeys: true });
   const r = await s.get('/api/config');
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json.payments, { mode: 'razorpay', keyId: KEY_ID, test: true });
+  assert.deepEqual(r.json.payments, { mode: 'razorpay', reason: null, keyId: KEY_ID, test: true });
   assert.ok(!r.text.includes(KEY_SECRET), 'the key secret must not appear');
   assert.ok(!r.text.includes(WEBHOOK_SECRET), 'the webhook secret must not appear');
   assert.equal(r.json.lot.car.total, 200);
@@ -44,13 +44,13 @@ test('with Razorpay keys the site publishes the key id and never a secret', asyn
 test('live keys are labelled live', async (t) => {
   const s = await site(t, { env: { RAZORPAY_KEY_ID: 'rzp_live_abc', RAZORPAY_KEY_SECRET: 'live_secret' } });
   const r = await s.get('/api/config');
-  assert.deepEqual(r.json.payments, { mode: 'razorpay', keyId: 'rzp_live_abc', test: false });
+  assert.deepEqual(r.json.payments, { mode: 'razorpay', reason: null, keyId: 'rzp_live_abc', test: false });
 });
 
-test('without keys the site runs in demo mode', async (t) => {
+test('on a developer\'s own computer (not production), no keys means simulated payments so the pages can be tried', async (t) => {
   const s = await site(t);
   const r = await s.get('/api/config');
-  assert.deepEqual(r.json.payments, { mode: 'demo', keyId: null, test: true });
+  assert.deepEqual(r.json.payments, { mode: 'demo', reason: null, keyId: null, test: true });
 });
 
 test('in production, no keys means booking is switched off', async (t) => {
@@ -63,27 +63,34 @@ test('in production, no keys means booking is switched off', async (t) => {
   assert.equal((await s.post('/api/payments/demo-confirm', { bookingId: 'bk_0123456789abcdef' })).status, 404);
 });
 
-test('DEMO_PAYMENTS makes a site in production run in demo mode, for a public demo with no Razorpay keys', async (t) => {
-  const s = await site(t, { env: { NODE_ENV: 'production', DEMO_PAYMENTS: 'on', OPERATOR_PASSWORD: 'a long made-up password' } });
-  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'demo', keyId: null, test: true });
-  const { created, paid } = await bookAndPay(s, car());
-  assert.equal(created.status, 201, created.text);
-  assert.deepEqual(created.json.payment, { mode: 'demo', amount: 8000, currency: 'INR' });
-  assert.equal(paid.status, 200, paid.text);
-  assert.equal(paid.json.booking.status, 'paid');
-  assert.match(s.store.get(created.json.booking.id).paymentId, /^demo_/);
-  // The real Razorpay route stays closed, as in any demo mode.
-  const r = await s.post('/api/payments/verify', { razorpay_order_id: 'order_x', razorpay_payment_id: 'pay_x', razorpay_signature: 'abc' });
-  assert.equal(r.status, 404);
-  // The dashboard still needs its password in production, and says the payments are simulated.
-  assert.equal((await s.get('/api/dashboard')).status, 401);
-  const dash = await s.get('/api/dashboard', { headers: { authorization: basic('operator', 'a long made-up password') } });
-  assert.equal(dash.json.paymentMode, 'demo');
+test('a site in production NEVER pretends to take a payment: no keys means booking is off, even if DEMO_PAYMENTS is set', async (t) => {
+  for (const demo of [undefined, '', 'on', 'true', '1', 'yes']) {
+    const env = { NODE_ENV: 'production', RENDER: 'true', OPERATOR_PASSWORD: 'a long made-up password' };
+    if (demo !== undefined) env.DEMO_PAYMENTS = demo;
+    const s = await site(t, { env });
+    assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'unavailable', reason: 'no_keys', keyId: null, test: true }, JSON.stringify(demo));
+    const r = await s.post('/api/bookings', car());
+    assert.equal(r.status, 503, r.text);
+    assert.equal(r.json.error, 'payments_unavailable');
+    assert.equal(s.store.bookings.length, 0, 'nothing is held or confirmed');
+    // the pretend-payment route does not exist, so a booking can never be confirmed without Razorpay
+    assert.equal((await s.post('/api/payments/demo-confirm', { bookingId: 'bk_0123456789abcdef' })).status, 404);
+    assert.equal((await s.post('/api/dashboard/sample-data', { action: 'add' }, { headers: { authorization: basic('operator', 'a long made-up password') } })).status, 409, 'no made-up bookings on a real site');
+  }
 });
 
-test('DEMO_PAYMENTS does nothing once Razorpay keys are set: the real checkout is used', async (t) => {
+test('the admin is told, in plain words, why booking is off, and what to do', async (t) => {
+  const s = await site(t, { env: { NODE_ENV: 'production', OPERATOR_PASSWORD: 'a long made-up password' } });
+  const dash = await s.get('/api/dashboard', { headers: { authorization: basic('operator', 'a long made-up password') } });
+  assert.equal(dash.json.paymentMode, 'unavailable');
+  assert.equal(dash.json.payments.acceptingPayments, false);
+  assert.equal(dash.json.payments.problems[0].level, 'bad');
+  assert.match(dash.json.payments.problems[0].text, /RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET/);
+});
+
+test('with Razorpay keys, DEMO_PAYMENTS changes nothing: the real checkout is used', async (t) => {
   const s = await site(t, { razorpayKeys: true, env: { NODE_ENV: 'production', DEMO_PAYMENTS: 'on' } });
-  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'razorpay', keyId: KEY_ID, test: true });
+  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'razorpay', reason: null, keyId: KEY_ID, test: true });
   assert.equal((await s.post('/api/payments/demo-confirm', { bookingId: 'bk_0123456789abcdef' })).status, 404, 'no pretend payment next to the real one');
   const created = await s.post('/api/bookings', car());
   assert.equal(created.status, 201, created.text);
@@ -91,12 +98,32 @@ test('DEMO_PAYMENTS does nothing once Razorpay keys are set: the real checkout i
   assert.match(created.json.payment.orderId, /^order_/);
 });
 
-test('without DEMO_PAYMENTS a site in production with no keys still switches booking off, whatever else is set', async (t) => {
-  for (const off of ['', 'off', '0', 'false']) {
-    const s = await site(t, { env: { NODE_ENV: 'production', DEMO_PAYMENTS: off, RENDER: 'true' } });
-    assert.equal((await s.get('/api/config')).json.payments.mode, 'unavailable', JSON.stringify(off));
-    assert.equal((await s.post('/api/bookings', car())).status, 503);
-  }
+test('a booking is only confirmed after Razorpay has really taken the payment: the browser saying so is not enough', async (t) => {
+  const s = await site(t, { razorpayKeys: true, env: { NODE_ENV: 'production' } });
+  const created = await s.post('/api/bookings', car());
+  assert.equal(created.status, 201, created.text);
+  // a made-up "payment done" with a wrong signature is refused and the booking stays unpaid
+  const fake = await s.post('/api/payments/verify', { razorpay_order_id: created.json.payment.orderId, razorpay_payment_id: 'pay_fake', razorpay_signature: 'nope' });
+  assert.equal(fake.status, 400);
+  assert.equal(s.store.get(created.json.booking.id).status, 'pending');
+  // the real signature (made with the secret key only Razorpay and this server know) confirms it
+  const paid = await pay(s, created);
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(s.store.get(created.json.booking.id).status, 'paid');
+});
+
+test('live keys on storage that is wiped at every restart switch booking off, so real money is never taken for a booking that can be lost', async (t) => {
+  const env = { NODE_ENV: 'production', RENDER: 'true', OPERATOR_PASSWORD: 'a long made-up password', RAZORPAY_KEY_ID: 'rzp_live_abc', RAZORPAY_KEY_SECRET: 'live_secret' };
+  const s = await site(t, { env });
+  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'unavailable', reason: 'temporary_storage', keyId: null, test: false });
+  assert.equal((await s.post('/api/bookings', car())).status, 503);
+  assert.equal(s.fake.calls.orders.length, 0, 'Razorpay was never asked for an order');
+  const dash = await s.get('/api/dashboard', { headers: { authorization: basic('operator', 'a long made-up password') } });
+  assert.match(dash.json.payments.problems.map((p) => p.text).join(' '), /temporary storage/);
+  // test keys on the same storage are fine: no real money moves
+  const test = await site(t, { env: { ...env, RAZORPAY_KEY_ID: 'rzp_test_abc', RAZORPAY_KEY_SECRET: 'test_secret' } });
+  assert.equal((await test.get('/api/config')).json.payments.mode, 'razorpay');
+  assert.equal((await test.post('/api/bookings', car())).status, 201);
 });
 
 test('the demo payment endpoint does not exist when Razorpay is on, and the real one does not exist in demo mode', async (t) => {

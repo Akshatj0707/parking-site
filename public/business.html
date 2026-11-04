@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Business overview · {{SITE_NAME}}</title>
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/analytics.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to see the business overview.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}<span class="brand-sub">Admin</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/business" aria-current="page">Business</a>
+      <a href="/bookings">Bookings</a>
+      <a href="/customers">Customers</a>
+      <a href="/analytics">Analytics</a>
+      <a class="nav-cta" href="/book">Booking page</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad">
+  <div class="dash-head rise">
+    <div class="stack g8">
+      <p class="eyebrow">Business overview</p>
+      <h1 class="h1">How the business is doing</h1>
+    </div>
+    <p class="updated" id="updated" role="status">Loading…</p>
+  </div>
+
+  <div class="stack g12" id="notice" aria-live="polite"></div>
+
+  <h2 class="ad-section-title">Money collected</h2>
+  <section class="tiles tiles-sm" id="money-tiles" aria-label="Money collected"></section>
+
+  <h2 class="ad-section-title">The lot and the customers</h2>
+  <section class="tiles tiles-sm" id="ops-tiles" aria-label="The lot and the customers"></section>
+
+  <div class="ad-cols">
+    <section class="panel" aria-labelledby="peak-title">
+      <h2 id="peak-title">Busiest time</h2>
+      <div class="stack g12" id="peak"></div>
+      <p><a class="btn btn-outline btn-sm" href="/analytics">See every hour and every day</a></p>
+    </section>
+    <section class="panel" aria-labelledby="pay-title">
+      <h2 id="pay-title">Payment connection</h2>
+      <ul class="status-list" id="pay-status"></ul>
+    </section>
+  </div>
+
+  <div class="ad-cols">
+    <section class="panel" aria-labelledby="wd-title">
+      <div class="panel-head"><h2 id="wd-title">Best weekdays</h2><p class="fine">All paid bookings, by the day the parking starts</p></div>
+      <ul class="hbars" id="weekdays"></ul>
+    </section>
+    <section class="panel" aria-labelledby="mo-title">
+      <div class="panel-head"><h2 id="mo-title">Last 6 months</h2><p class="fine">Money collected</p></div>
+      <ul class="hbars" id="months"></ul>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="top-title">
+    <div class="panel-head"><h2 id="top-title">Top customers</h2><p class="fine"><a href="/customers">See all customers</a></p></div>
+    <div class="table-wrap" id="top"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="roles-title">
+    <div class="panel-head"><h2 id="roles-title">Who can do what</h2><p class="fine">The two roles of this website</p></div>
+    <div class="table-wrap" id="roles"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="read-title">
+    <h2 id="read-title">How to read this page</h2>
+    <ul class="plain-list">
+      <li><b>Money collected</b> is the payments received in that period, in rupees, on the lot’s clock. A booking that was cancelled and refunded is taken out, and shown under <b>Refunded</b>.</li>
+      <li><b>In use now</b> is based on paid bookings, not on sensors, so it cannot tell whether a vehicle has really arrived.</li>
+      <li><b>Cancelled or refunded</b> is the share of all booked bays that were later cancelled by you or refunded.</li>
+      <li><b>Repeat customers</b> are signed-in customers with two or more paid bookings.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Admin: Business overview</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/business.js"></script>
+</body>
+</html>

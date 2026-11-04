@@ -205,7 +205,7 @@
     if (panel.hidden) return;
     $('sample-text').textContent = d.sample.present
       ? `${plural(d.sample.count, 'sample booking')} are included in the numbers above. They are made-up bookings for showing this page, not real customers, and they are all in the past so they never block a bay.`
-      : 'Nothing has been booked yet. In test mode you can add about two weeks of made-up bookings (all in the past) to see how the charts look. They are marked as samples and you can remove them at any time.';
+      : 'Nothing has been booked yet. When you run the site on your own computer without Razorpay keys, you can add about two weeks of made-up bookings (all in the past) to see how the charts look. They are marked as samples and you can remove them at any time.';
     const buttons = [];
     if (testMode) buttons.push(h('button', { class: 'btn btn-navy btn-sm', type: 'button', onclick: () => sample('add') }, d.sample.present ? 'Make new sample bookings' : 'Add sample bookings'));
     if (d.sample.present) buttons.push(h('button', { class: 'btn btn-outline btn-sm', type: 'button', onclick: () => sample('remove') }, 'Remove sample bookings'));

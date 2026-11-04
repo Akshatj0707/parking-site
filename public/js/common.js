@@ -134,9 +134,9 @@
     if (!bar) return;
     const p = cfg.payments;
     let text = '';
-    if (p.mode === 'demo') text = 'Test mode: payments are simulated, so no money is taken.';
-    else if (p.mode === 'unavailable') text = 'Online booking is switched off until payments are set up.';
-    else if (p.test) text = 'Test mode: payments use Razorpay test cards, so no real money is taken.';
+    if (p.mode === 'demo') text = 'Payments are simulated on this computer, so no money is taken.';
+    else if (p.mode === 'unavailable') text = 'Online booking is temporarily unavailable. Please check back soon.';
+    else if (p.test) text = 'Razorpay test payments: use Razorpay’s test cards, no real money is taken.';
     bar.textContent = text;
     bar.hidden = !text;
   }
@@ -240,7 +240,7 @@
     location.assign('/');
   }
 
-  // The links "Sign in" or "My bookings" and "Sign out" (for the operator: Dashboard, Analytics and "Sign out") go at the
+  // The links "Sign in" or "My bookings" and "Sign out" (for the admin: Dashboard, Business and "Sign out") go at the
   // end of each page's main menu, just before the booking button.
   async function applyAuthNav() {
     const nav = document.querySelector('header .nav');
@@ -254,7 +254,7 @@
     if (!user) return add(link('/login', 'Sign in'));
     if (user.role === 'admin') {
       if (!has('/dashboard')) add(link('/dashboard', 'Dashboard'));
-      if (!has('/analytics')) add(link('/analytics', 'Analytics'));
+      if (!has('/business')) add(link('/business', 'Business'));
     } else if (!has('/account')) {
       add(link('/account', 'My bookings'));
     }

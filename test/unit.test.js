@@ -132,16 +132,34 @@ test('default settings', () => {
   assert.equal(c.razorpay.configured, false);
   assert.equal(c.razorpay.live, false);
   assert.equal(c.disableCsp, false);
-  assert.equal(c.demoPayments, false);
+  assert.equal(c.demoSettingIgnored, false);
+  assert.equal(c.unsafeLiveStorage, false);
   assert.equal(c.operator.password, '');
 });
 
-test('DEMO_PAYMENTS is on only for a clear yes, and only changes what happens with no Razorpay keys', () => {
-  for (const yes of ['1', 'true', 'TRUE', 'yes', 'on', 'On', ' on ']) assert.equal(loadConfig({ DEMO_PAYMENTS: yes }).demoPayments, true, JSON.stringify(yes));
-  for (const no of [undefined, '', '   ', '0', 'false', 'no', 'off', 'maybe', 'onn']) assert.equal(loadConfig({ DEMO_PAYMENTS: no }).demoPayments, false, JSON.stringify(no));
-  // It is read as a setting of its own: nothing else switches it on.
-  assert.equal(loadConfig({ NODE_ENV: 'production', RENDER: 'true' }).demoPayments, false);
-  assert.equal(loadConfig({ NODE_ENV: 'production', RENDER: 'true', DEMO_PAYMENTS: 'on' }).razorpay.configured, false, 'it does not pretend that Razorpay is set up');
+test('DEMO_PAYMENTS is gone: it is ignored (and noticed), and never makes anything pretend', () => {
+  for (const yes of ['1', 'true', 'on', ' On ']) {
+    const c = loadConfig({ NODE_ENV: 'production', RENDER: 'true', DEMO_PAYMENTS: yes });
+    assert.equal(c.demoSettingIgnored, true, JSON.stringify(yes));
+    assert.equal(c.demoPayments, undefined, 'there is no such setting any more');
+    assert.equal(c.razorpay.configured, false, 'it does not pretend that Razorpay is set up');
+  }
+  for (const no of [undefined, '', '0', 'off']) assert.equal(loadConfig({ DEMO_PAYMENTS: no }).demoSettingIgnored, false, JSON.stringify(no));
+});
+
+test('live keys on storage that is wiped at every restart are flagged, test keys and a real disk are not', () => {
+  const live = { RENDER: 'true', NODE_ENV: 'production', RAZORPAY_KEY_ID: 'rzp_live_x', RAZORPAY_KEY_SECRET: 's' };
+  assert.equal(loadConfig({ ...live, DATA_DIR: '/tmp/somewhere' }).unsafeLiveStorage, true);
+  assert.equal(loadConfig({ ...live }).unsafeLiveStorage, false, 'the default folder on Render is on the disk');
+  assert.equal(loadConfig({ ...live, DATA_DIR: '/var/data/live' }).unsafeLiveStorage, false);
+  assert.equal(loadConfig({ ...live, RAZORPAY_KEY_ID: 'rzp_test_x', DATA_DIR: '/tmp/somewhere' }).unsafeLiveStorage, false);
+  assert.equal(loadConfig({ ...live, RENDER: '', DATA_DIR: '/tmp/somewhere' }).unsafeLiveStorage, false, 'nothing is known about other hosts');
+});
+
+test('the test customer is only made when SEED_TEST_CUSTOMER is switched on, and never with Razorpay keys', () => {
+  assert.equal(loadConfig({ NODE_ENV: 'production' }).auth.seedTestCustomer, false);
+  assert.equal(loadConfig({ SEED_TEST_CUSTOMER: 'on' }).auth.seedTestCustomer, true);
+  assert.equal(loadConfig({ SEED_TEST_CUSTOMER: 'on', RAZORPAY_KEY_ID: 'rzp_test_x', RAZORPAY_KEY_SECRET: 's' }).auth.seedTestCustomer, false);
 });
 
 test('settings come from the environment and bad values fall back', () => {

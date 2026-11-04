@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Customers · {{SITE_NAME}}</title>
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/analytics.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to see the customers.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}<span class="brand-sub">Admin</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/business">Business</a>
+      <a href="/bookings">Bookings</a>
+      <a href="/customers" aria-current="page">Customers</a>
+      <a href="/analytics">Analytics</a>
+      <a class="nav-cta" href="/book">Booking page</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad">
+  <div class="dash-head rise">
+    <div class="stack g8">
+      <p class="eyebrow">Customers</p>
+      <h1 class="h1">Everyone who has an account</h1>
+    </div>
+    <p class="updated" id="updated" role="status">Loading…</p>
+  </div>
+
+  <div class="stack g12" id="notice" aria-live="polite"></div>
+
+  <section class="tiles tiles-sm" id="cust-tiles" aria-label="Customers in numbers"></section>
+
+  <section class="panel" aria-labelledby="f-title">
+    <h2 id="f-title">Find a customer</h2>
+    <form class="filters" id="filters" novalidate>
+      <div class="field field-wide">
+        <label class="label" for="f-q">Search</label>
+        <input class="input" id="f-q" name="q" type="search" autocomplete="off" maxlength="60" placeholder="Name or e-mail">
+      </div>
+      <div class="field">
+        <label class="label" for="f-sort">Order</label>
+        <select class="select" id="f-sort" name="sort">
+          <option value="spent">Most spent first</option>
+          <option value="bookings">Most bookings first</option>
+          <option value="newest">Newest accounts first</option>
+          <option value="name">Name, A to Z</option>
+        </select>
+      </div>
+      <div class="filters-actions">
+        <button class="btn btn-navy" type="submit">Show customers</button>
+        <button class="btn btn-outline" type="button" id="f-reset">Clear</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel" aria-labelledby="list-title">
+    <div class="panel-head"><h2 id="list-title">Customers</h2><p class="totals" id="totals" role="status"></p></div>
+    <div class="table-wrap" id="list"><p class="muted">Loading…</p></div>
+    <div class="pager" id="pager"></div>
+    <p class="fine">Only customers who created an account are listed. Passwords are never shown: nobody, including you, can read them.</p>
+  </section>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Admin: Customers</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/customers.js"></script>
+</body>
+</html>
