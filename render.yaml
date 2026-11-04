@@ -6,19 +6,20 @@
 # To bring this branch up to date: merge main into it, keep this file when render.yaml conflicts, and copy any change of
 # main's render.yaml into render-paid.yaml.
 #
-# Render Blueprint for a FREE DEMO of this website. Use it to show the site on the internet at no cost, with nothing to type.
+# Render Blueprint for the FREE size of this website. It puts the site on the internet at no cost.
 # It is render.yaml with these differences:
 #   - plan: free. No charge, but Render puts the site to sleep after 15 minutes without visitors (waking it takes about
 #     a minute) and may restart it at any time.
-#   - No disk, because Render's free size cannot have one. Bookings are kept in a temporary folder (DATA_DIR below) and
-#     are LOST whenever the site sleeps, restarts or is updated.
-#   - So it is for demos only: never live Razorpay keys (rzp_live_...) and no real customers.
-#     For a real site use render.yaml (about $7 a month, plus $0.25 for the disk).
-#   - No boxes to fill in when it is created. Render makes up the dashboard password itself (OPERATOR_PASSWORD). With no
-#     Razorpay keys the site simulates payment (DEMO_PAYMENTS), so everything can be tried at once. To get Razorpay's real
-#     test window, add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (TEST keys, rzp_test_...) under Environment in the Render
-#     dashboard. The webhook secret (RAZORPAY_WEBHOOK_SECRET) and the business details (SITE_NAME, BUSINESS_NAME,
-#     SUPPORT_EMAIL, SUPPORT_PHONE, BUSINESS_ADDRESS) can be added there too.
+#   - No disk, because Render's free size cannot have one. Bookings and customer accounts are kept in a temporary folder
+#     (DATA_DIR below) and are LOST whenever the site sleeps, restarts or is updated.
+#   - So this size is for trying the site with Razorpay TEST keys (rzp_test_...) only. If live keys (rzp_live_...) are set
+#     here, the site switches booking off by itself, so no customer ever pays real money for a booking that could be lost.
+#     For a real business use render.yaml (about $7 a month, plus $0.25 for the disk).
+#   - Nothing is pretended. Payment is always Razorpay's own window. Until RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are added
+#     (TEST keys, from the Razorpay dashboard in Test Mode) under Environment in the Render dashboard, booking is switched
+#     off and the owner's pages say why. The webhook secret (RAZORPAY_WEBHOOK_SECRET) and the business details (SITE_NAME,
+#     BUSINESS_NAME, SUPPORT_EMAIL, SUPPORT_PHONE, BUSINESS_ADDRESS) can be added there too.
+#   - No boxes to fill in when it is created. Render makes up the admin password itself (OPERATOR_PASSWORD).
 #
 # To use it, choose New > Blueprint in Render and set "Blueprint Path" to render-free.yaml (the steps are in
 # DEPLOY-RENDER.md, under "A free demo first").
@@ -47,11 +48,7 @@ services:
       # message about it, which is expected here: the folder is emptied whenever the site sleeps, restarts or is updated.
       - key: DATA_DIR
         value: /tmp/bayfind-demo-data
-      # Without Razorpay keys a site in production switches booking off. For this demo the payment is simulated instead,
-      # so the whole site works at once. When both Razorpay keys are added, the real Razorpay checkout takes over.
-      - key: DEMO_PAYMENTS
-        value: "on"
-      # The password for /dashboard (the user name is "operator"). Render makes one up. To see it, or to put in one of
+      # The admin password for /login (the user name is "operator"). Render makes one up. To see it, or to put in one of
       # your own, open the service in Render and choose Environment.
       - key: OPERATOR_PASSWORD
         generateValue: true
