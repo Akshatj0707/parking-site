@@ -1,0 +1,46 @@
+/* The owner's pages: Business overview, All bookings and Customers. Uses the colours and classes of styles.css. */
+.ad-section-title { font-family: var(--font-head); font-weight: 800; font-size: 22px; margin: 8px 0 -4px; }
+.ad-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: start; }
+.tiles.tiles-sm .tile .n { font-size: 36px; }
+.tile .n.n-text { font-size: 28px; line-height: 1.15; }
+
+/* Horizontal bars: a label, a bar and the numbers, one row per weekday or month */
+.hbars { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.hbars li { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 12px; font-size: 15px; }
+.hbars .lbl { font-weight: 700; }
+.hbars .track { height: 18px; background: var(--track); border-radius: 9px; overflow: hidden; }
+.hbars .fill { display: block; height: 100%; background: var(--blue); border-radius: 9px; min-width: 2px; }
+.hbars .fill.best { background: var(--accent); outline: 2px solid var(--navy); outline-offset: -2px; }
+.hbars .val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.hbars .val small { color: var(--muted); }
+
+/* A status list: Razorpay mode, webhook, storage */
+.status-list { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.status-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 12px 0; border-bottom: 1px solid var(--track); font-size: 16px; }
+.status-list li:last-child { border-bottom: 0; }
+.status-list .yes { color: #166534; font-weight: 700; }
+.status-list .no { color: #991b1b; font-weight: 700; }
+.status-list .maybe { color: #92400e; font-weight: 700; }
+
+/* Role table */
+.role-table { min-width: 0; }
+.role-table td.tick, .role-table th.tick { text-align: center; width: 120px; }
+.role-table .tick-yes { color: #166534; font-weight: 800; font-size: 18px; }
+.role-table .tick-no { color: var(--border-strong); font-weight: 800; }
+
+/* Search and filter row above a table */
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 16px; align-items: end; }
+.filters .field-wide { grid-column: span 2; }
+@media (max-width: 520px) { .filters .field-wide { grid-column: auto; } }
+.filters .input, .filters .select { font-size: 16px; letter-spacing: 0; font-weight: 600; min-height: 48px; }
+.filters-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.totals { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; font-size: 16px; }
+.totals b { font-variant-numeric: tabular-nums; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.pager .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.table.table-wide { min-width: 1180px; }
+.table td.nowrap { white-space: nowrap; }
+.table .sub { display: block; font-size: 13px; color: var(--muted); }
+.table .wrap-id { word-break: break-all; font-size: 13px; }
+.badge.cancelled-admin { background: var(--track); color: var(--navy-3); }
+.tile-line { font-size: 20px; }

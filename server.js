@@ -64,15 +64,17 @@ const server = app.listen(config.port, config.host, () => {
       ? '  Payments    LIVE: real Razorpay payments, real money'
       : '  Payments    TEST MODE: Razorpay checkout with test keys, no real money moves');
   } else if (mode === 'demo') {
-    lines.push('  Payments    DEMO MODE: no Razorpay keys found, so payment is simulated.');
-    lines.push(config.onRender
-      ? '              Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (test keys) under Environment in Render to try the real checkout.'
-      : '              Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env to try the real checkout.');
-    if (config.production && config.demoPayments) {
-      lines.push('              DEMO_PAYMENTS is on: that is for a public demo only, never for real customers.');
-    }
+    lines.push('  Payments    SIMULATED (this computer only): no Razorpay keys found, so payment is only pretended.');
+    lines.push('              Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env to try the real checkout. A site in production never pretends.');
+  } else if (config.unsafeLiveStorage) {
+    lines.push('  Payments    OFF: live Razorpay keys are set, but the bookings are on temporary storage (no Render disk), so real payments would be taken for bookings that can be lost.');
+    lines.push('              Use a Render plan with a disk (render.yaml), or switch to Razorpay test keys (rzp_test_...).');
   } else {
     lines.push('  Payments    OFF: production mode needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET, so booking is disabled.');
+    if (config.onRender) lines.push('              Add them under Environment in Render, then Save and deploy.');
+  }
+  if (config.demoSettingIgnored) {
+    lines.push('  Note        DEMO_PAYMENTS is no longer supported and is ignored: a site in production only takes real Razorpay payments.');
   }
   if (!config.chat.enabled) {
     lines.push('  Chat        OFF: CHAT_ENABLED is off, so the chat window is hidden.');
@@ -100,7 +102,7 @@ const server = app.listen(config.port, config.host, () => {
   if (config.onRender && config.dataOnRenderDisk === false) {
     lines.push(`  WARNING     That folder is not on the Render disk (${RENDER_DISK_PATH}), so every booking is lost the next time the site restarts or is updated.`);
     lines.push(`              Remove the DATA_DIR setting in Render, or point it at a folder inside ${RENDER_DISK_PATH}.`);
-    lines.push('              Exception: the free demo (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only, never for real customers.');
+    lines.push('              Exception: Render\'s free size (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is and use Razorpay TEST keys only. Live keys switch booking off there.');
   }
   lines.push('');
   console.log(lines.join('\n'));

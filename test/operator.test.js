@@ -365,14 +365,14 @@ test('a payment confirmation that turns up after the operator cancelled does not
 
 // ===== Demo bookings and missing keys ====================================================================
 
-test('in demo mode cancelling just cancels: no money moved, nothing to refund', async (t) => {
+test('with simulated payments (a developer\'s computer) cancelling just cancels: no money moved, nothing to refund', async (t) => {
   const s = await site(t, {});
   const ref = await paidBooking(s);
   assert.match(byRef(s, ref).paymentId, /^demo_/);
   const done = await s.post(CANCEL(ref), {});
   assert.equal(done.status, 200, done.text);
   assert.equal(done.json.outcome, 'cancelled');
-  assert.match(done.json.message, /test booking/);
+  assert.match(done.json.message, /simulated/);
   assert.equal(byRef(s, ref).status, 'cancelled');
   assert.equal(byRef(s, ref).cancelReason, 'operator');
   assert.equal(await bayIsFree(s, 'C001'), true);

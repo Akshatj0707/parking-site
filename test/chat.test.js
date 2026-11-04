@@ -283,13 +283,13 @@ test('with no contact details set, the answers say to ask at the parking office'
 
 test('what an answer says about payments follows the payment mode', async (t) => {
   const demo = await instantSite(t);
-  assert.ok((await say(demo, 'how do i book')).reply.includes('test mode'));
+  assert.ok((await say(demo, 'how do i book')).reply.includes('simulated'));
   const off = await instantSite(t, { NODE_ENV: 'production' });
-  assert.ok((await say(off, 'how do i book')).reply.includes('switched off'));
+  assert.ok((await say(off, 'how do i book')).reply.includes('temporarily unavailable'));
   const testMode = await instantSite(t, { RAZORPAY_KEY_ID: 'rzp_test_abc', RAZORPAY_KEY_SECRET: 's' });
-  assert.ok((await say(testMode, 'how do i book')).reply.includes('test mode'));
+  assert.ok((await say(testMode, 'how do i book')).reply.includes('test cards'));
   const live = await instantSite(t, { RAZORPAY_KEY_ID: 'rzp_live_abc', RAZORPAY_KEY_SECRET: 's' });
-  for (const q of ['how do i book', 'do you accept upi']) assert.doesNotMatch((await say(live, q)).reply, /demo|test mode|switched off/i, q);
+  for (const q of ['how do i book', 'do you accept upi']) assert.doesNotMatch((await say(live, q)).reply, /demo|test mode|test cards|simulated|unavailable|switched off/i, q);
 });
 
 test('a short follow-up borrows the topic of the question before it', async (t) => {

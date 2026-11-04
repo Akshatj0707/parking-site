@@ -370,7 +370,7 @@
     const off = mode === 'unavailable';
 
     let hint = '';
-    if (off) hint = 'Online booking is switched off for now.';
+    if (off) hint = 'Online booking is temporarily unavailable. Please try again soon.';
     else if (a && !state.bay) hint = 'No bays are free at this time. Try another time or day.';
     else if (!state.plate) hint = 'Enter your vehicle number to continue.';
 
@@ -380,7 +380,7 @@
 
     const fine =
       mode === 'demo'
-        ? `Test mode: no real payment is taken. Your bay is held for ${cfg.holdMinutes} minutes once you continue.`
+        ? `Payment is simulated on this computer. Your bay is held for ${cfg.holdMinutes} minutes once you continue.`
         : `Secure payment by Razorpay. Your bay is held for ${cfg.holdMinutes} minutes once you press Pay.`;
 
     return [
@@ -422,15 +422,15 @@
       ];
     }
     return [
-      h('h2', { tabindex: '-1' }, demo ? 'Test payment' : 'Complete your payment'),
-      demo ? h('p', { class: 'msg info' }, 'This is a test payment, so no money moves. Once Razorpay is connected, its payment window (UPI, cards and more) opens here instead.') : null,
+      h('h2', { tabindex: '-1' }, demo ? 'Simulated payment' : 'Complete your payment'),
+      demo ? h('p', { class: 'msg info' }, 'This computer has no Razorpay keys, so the payment is only pretended. On the real website, Razorpay’s payment window (UPI, cards and more) opens here.') : null,
       details,
       holdLine(),
       noteNode(),
       h(
         'button',
         { type: 'button', class: 'btn btn-accent btn-block btn-tall', onclick: demo ? payDemo : openCheckout },
-        demo ? 'Pay ' + rupees(payment.amount / 100) + ' (test)' : 'Open payment window'
+        demo ? 'Pay ' + rupees(payment.amount / 100) + ' (simulated)' : 'Open payment window'
       ),
       h('button', { type: 'button', class: 'link-btn', onclick: startAgain }, 'Change my booking'),
     ];

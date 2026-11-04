@@ -19,6 +19,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { HttpError } = require('./errors');
 const { HitCounter } = require('./ratelimit');
+const { permissionsOf } = require('./roles');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -154,7 +155,7 @@ function createAuth({ config, now = Date.now, log = console }) {
   const failures = new HitCounter(15 * 60 * 1000, now);
   let dummy = null; // a hash to check against when the email is unknown, so unknown and known emails take equally long
 
-  const publicUser = (s) => (s ? { role: s.role, name: s.name, email: s.email || null } : null);
+  const publicUser = (s) => (s ? { role: s.role, name: s.name, email: s.email || null, permissions: permissionsOf(s.role) } : null);
 
   function cookieFlags(req, maxAge) {
     return `Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${req.secure ? '; Secure' : ''}`;

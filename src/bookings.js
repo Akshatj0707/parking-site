@@ -8,7 +8,7 @@
  *   pending         held for a few minutes while the customer pays; blocks the bay only until holdUntil
  *   paid            confirmed; blocks the bay for its time window
  *   cancelled       released by the customer, replaced by a newer attempt, or never paid
- *                   (in demo mode also a paid booking that the operator cancelled: cancelReason "operator")
+ *                   (on a developer's computer, with simulated payments, also a paid booking that the admin cancelled: cancelReason "operator")
  *   refund_pending  a refund is being sent: the payment arrived but the bay was no longer free, or the operator
  *                   cancelled a paid booking (cancelReason "operator")
  *   refunded        that refund was accepted by Razorpay
@@ -23,7 +23,7 @@ const crypto = require('crypto');
 const S = require('../public/js/shared.js');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
-const { analytics, sampleBookings } = require('./analytics');
+const { analytics, overview, sampleBookings } = require('./analytics');
 
 const { MIN, HOUR, DAY, LOT, VEHICLES } = S;
 
@@ -58,12 +58,67 @@ class BookingService {
     this.reconciling = false;
   }
 
-  // razorpay    keys are set: real Razorpay checkout (test keys give test mode, live keys take real money)
-  // demo        no keys and not in production, or DEMO_PAYMENTS is on (a public demo): the whole flow works but payment is simulated
-  // unavailable no keys in production: booking is switched off rather than pretending to take money
+  // razorpay    keys are set: the real Razorpay checkout (test keys give Razorpay's test window, live keys take real money)
+  // demo        ONLY on a developer's own computer (not production, no keys): payment is simulated so the pages can be tried
+  // unavailable booking is switched off rather than pretending to take money: a production site with no Razorpay keys, or
+  //             live keys on storage that is wiped at every restart (real payments would be taken and the bookings lost)
   get paymentMode() {
-    if (this.config.razorpay.configured) return 'razorpay';
-    return this.config.production && !this.config.demoPayments ? 'unavailable' : 'demo';
+    if (this.config.razorpay.configured) return this.config.unsafeLiveStorage ? 'unavailable' : 'razorpay';
+    return this.config.production ? 'unavailable' : 'demo';
+  }
+
+  // Why booking is off, for the owner: 'no_keys', 'temporary_storage' or null.
+  get unavailableReason() {
+    if (this.paymentMode !== 'unavailable') return null;
+    return this.config.razorpay.configured ? 'temporary_storage' : 'no_keys';
+  }
+
+  // The payment connection, in plain words, for the owner's pages. Nothing secret is in it.
+  paymentStatus() {
+    const cfg = this.config;
+    const mode = this.paymentMode;
+    const persistent = cfg.dataOnRenderDisk !== false;
+    const problems = [];
+    if (mode === 'unavailable' && this.unavailableReason === 'no_keys') {
+      problems.push({
+        level: 'bad',
+        text: 'Razorpay is not connected, so customers cannot book or pay. In Render, open this service, choose Environment, add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET, then Save and deploy.',
+      });
+    }
+    if (mode === 'unavailable' && this.unavailableReason === 'temporary_storage') {
+      problems.push({
+        level: 'bad',
+        text: 'Live Razorpay keys are set, but this site keeps its bookings on temporary storage that is wiped whenever the site restarts. Booking is switched off so that no customer pays for a booking that could be lost. Move to a Render plan with a disk (render.yaml), or use Razorpay test keys.',
+      });
+    }
+    if (mode === 'razorpay' && !cfg.razorpay.live) {
+      problems.push({
+        level: 'info',
+        text: 'Razorpay test keys are in use. Customers get Razorpay’s real payment window and every payment shows in your Razorpay dashboard under Test Mode, but no real money moves. Replace the keys with live keys (rzp_live_…) once Razorpay has activated your account.',
+      });
+    }
+    if (mode === 'razorpay' && !cfg.razorpay.webhookSecret) {
+      problems.push({
+        level: 'warn',
+        text: 'The Razorpay webhook is not set up (RAZORPAY_WEBHOOK_SECRET). Payments are still checked, but add the webhook so a payment is never missed when a customer closes the page too early.',
+      });
+    }
+    if (!persistent && mode !== 'demo') {
+      problems.push({
+        level: 'warn',
+        text: 'Bookings and customer accounts are stored on temporary storage: they are lost whenever the site sleeps, restarts or is updated. A real business needs a Render plan with a disk (render.yaml).',
+      });
+    }
+    return {
+      mode,
+      reason: this.unavailableReason,
+      keysSet: cfg.razorpay.configured,
+      live: cfg.razorpay.configured && cfg.razorpay.live,
+      webhookSet: Boolean(cfg.razorpay.webhookSecret),
+      storageKept: persistent,
+      acceptingPayments: mode === 'razorpay',
+      problems,
+    };
   }
 
   // Writing to disk can fail (disk full, folder locked). After a payment the in-memory state is still the truth,
@@ -650,7 +705,7 @@ class BookingService {
       booking.status = 'cancelled';
       this.persist();
       this.log.warn(`Booking ${booking.ref} (a demo booking) was cancelled by the operator.`);
-      return { outcome: 'cancelled', booking, message: 'Cancelled. This was a test booking (the payment was simulated), so no money was taken and nothing needs to be refunded.' };
+      return { outcome: 'cancelled', booking, message: 'Cancelled. The payment of this booking was only simulated (this computer has no Razorpay keys), so nothing needs to be refunded.' };
     }
 
     const paymentId = booking.paymentId;
@@ -769,6 +824,208 @@ class BookingService {
     };
   }
 
+  // ---- The owner's view of every booking ------------------------------------------------------------
+  // `userById` looks a customer account up (the website passes it in, so this file does not need to know about accounts).
+  adminRow(b, userById, now = this.now()) {
+    const u = b.customerId && userById ? userById(b.customerId) : null;
+    return {
+      ...this.operatorRow(b, now),
+      createdAt: b.createdAt,
+      orderId: b.orderId || null,
+      refundedAt: b.refundedAt || null,
+      cancelledAt: b.cancelledAt || null,
+      customer: u ? { name: u.name, email: u.email } : null,
+    };
+  }
+
+  // Filters: q (reference, vehicle number, bay, customer name or email, Razorpay ids), status, vehicle, when, from, to
+  // (lot dates, on the day the parking starts), sort, page, pageSize. Used by the table and by the CSV download.
+  filterBookings(query = {}, userById = null) {
+    const now = this.now();
+    const off = this.config.utcOffsetMinutes;
+    const BOOKED = (b) => b.status === 'paid' || b.status.startsWith('refund') || (b.status === 'cancelled' && b.cancelReason === 'operator');
+    const status = ['all', 'booked', 'paid', 'refunded', 'unpaid'].includes(query.status) ? query.status : 'booked';
+    const vehicle = VEHICLES.includes(query.vehicle) ? query.vehicle : 'all';
+    const when = ['all', 'today', 'upcoming', 'active', 'ended'].includes(query.when) ? query.when : 'all';
+    const dateOk = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const from = dateOk(query.from) ? query.from : null;
+    const to = dateOk(query.to) ? query.to : null;
+    const today = S.lotDateString(now, off);
+    const text = String(query.q === undefined ? '' : query.q).trim().slice(0, 60).toLowerCase();
+    const plateText = S.normalizePlate(text);
+
+    const matchesText = (b) => {
+      if (!text) return true;
+      const u = b.customerId && userById ? userById(b.customerId) : null;
+      const hay = [b.ref, b.bay, b.paymentId, b.orderId, b.refundId, u && u.name, u && u.email].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(text) || (plateText.length >= 2 && b.plate.includes(plateText));
+    };
+    const matchesState = (b) => {
+      if (when === 'all') return true;
+      if (when === 'today') return S.lotDateString(b.startMs, off) === today;
+      if (b.status !== 'paid') return false;
+      if (when === 'upcoming') return b.startMs > now;
+      if (when === 'active') return b.startMs <= now && now < b.endMs;
+      return b.endMs <= now; // ended
+    };
+
+    let list = this.store.bookings.filter((b) => {
+      if (status === 'booked' && !BOOKED(b)) return false;
+      if (status === 'paid' && b.status !== 'paid') return false;
+      if (status === 'refunded' && !b.status.startsWith('refund')) return false;
+      if (status === 'unpaid' && !(b.status === 'pending' || (b.status === 'cancelled' && b.cancelReason !== 'operator'))) return false;
+      if (vehicle !== 'all' && b.vehicle !== vehicle) return false;
+      if (from || to) {
+        const day = S.lotDateString(b.startMs, off);
+        if ((from && day < from) || (to && day > to)) return false;
+      }
+      return matchesState(b) && matchesText(b);
+    });
+
+    const sorts = {
+      newest: (a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt),
+      start_desc: (a, b) => b.startMs - a.startMs,
+      start_asc: (a, b) => a.startMs - b.startMs,
+      amount_desc: (a, b) => b.amountPaise - a.amountPaise,
+    };
+    const sort = Object.prototype.hasOwnProperty.call(sorts, query.sort) ? query.sort : 'newest';
+    list = list.slice().sort(sorts[sort]);
+
+    const totals = { count: list.length, paidCount: 0, paidPaise: 0, refundedCount: 0, refundedPaise: 0 };
+    for (const b of list) {
+      if (b.status === 'paid') {
+        totals.paidCount += 1;
+        totals.paidPaise += b.amountPaise;
+      } else if (b.status === 'refunded') {
+        totals.refundedCount += 1;
+        totals.refundedPaise += b.amountPaise;
+      }
+    }
+    return { list, totals, filters: { status, vehicle, when, from, to, q: text, sort }, now, off };
+  }
+
+  allBookings(query = {}, userById = null) {
+    const { list, totals, filters, now } = this.filterBookings(query, userById);
+    const pageSize = Math.min(100, Math.max(10, Math.floor(Number(query.pageSize)) || 25));
+    const pages = Math.max(1, Math.ceil(list.length / pageSize));
+    const page = Math.min(pages, Math.max(1, Math.floor(Number(query.page)) || 1));
+    const rows = list.slice((page - 1) * pageSize, page * pageSize).map((b) => this.adminRow(b, userById, now));
+    return {
+      serverTime: now,
+      utcOffsetMinutes: this.config.utcOffsetMinutes,
+      filters,
+      page,
+      pages,
+      pageSize,
+      total: list.length,
+      totals: {
+        count: totals.count,
+        paidCount: totals.paidCount,
+        paid: totals.paidPaise / 100,
+        refundedCount: totals.refundedCount,
+        refunded: totals.refundedPaise / 100,
+      },
+      rows,
+    };
+  }
+
+  // Every booking that matches the filters, as CSV text for a spreadsheet. A cell that starts with = + - or @ would be
+  // run as a formula by Excel, and names and vehicle numbers are typed by customers, so those get a leading apostrophe.
+  bookingsCsv(query = {}, userById = null) {
+    const { list, now } = this.filterBookings(query, userById);
+    const off = this.config.utcOffsetMinutes;
+    const two = (n) => String(n).padStart(2, '0');
+    const stamp = (ms) => {
+      if (!ms) return '';
+      const p = S.lotParts(ms, off);
+      return `${S.lotDateString(ms, off)} ${two(p.h)}:${two(p.mi)}`;
+    };
+    const cell = (value) => {
+      let t = value === null || value === undefined ? '' : String(value);
+      if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+      return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    const head = ['Reference', 'Booked on', 'Paid on', 'Customer name', 'Customer email', 'Vehicle type', 'Vehicle number', 'Bay', 'Parking from', 'Parking until', 'Hours', 'Amount (INR)', 'Status', 'Razorpay payment id', 'Razorpay order id', 'Razorpay refund id'];
+    const lines = [head.map(cell).join(',')];
+    for (const b of list) {
+      const r = this.adminRow(b, userById, now);
+      lines.push(
+        [
+          r.ref,
+          stamp(r.createdAt),
+          stamp(r.paidAt),
+          r.customer ? r.customer.name : '',
+          r.customer ? r.customer.email : '',
+          r.vehicleLabel,
+          r.plate,
+          r.bay,
+          stamp(b.startMs),
+          stamp(b.endMs),
+          r.hours,
+          (b.amountPaise / 100).toFixed(2),
+          r.status === 'cancelled' && r.cancelledByOperator ? 'cancelled by admin' : r.status,
+          r.paymentId || '',
+          r.orderId || '',
+          r.refundId || '',
+        ]
+          .map(cell)
+          .join(',')
+      );
+    }
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  // ---- The owner's overview and customer list -------------------------------------------------------
+  ownerOverview(users) {
+    return { ...overview(this.store.bookings, users || [], { now: this.now(), config: this.config }), payments: this.paymentStatus(), siteName: this.config.siteName };
+  }
+
+  // One row per customer account: what they have booked and spent. Never includes a password or anything secret.
+  customerList(users, query = {}) {
+    const now = this.now();
+    const text = String(query.q === undefined ? '' : query.q).trim().slice(0, 60).toLowerCase();
+    const stats = new Map();
+    for (const b of this.store.bookings) {
+      if (!b.customerId) continue;
+      const c = stats.get(b.customerId) || { paid: 0, paise: 0, refundedPaise: 0, lastStart: 0, nextStart: null };
+      if (b.status === 'paid') {
+        c.paid += 1;
+        c.paise += b.amountPaise;
+        c.lastStart = Math.max(c.lastStart, b.startMs);
+        if (b.startMs > now && (c.nextStart === null || b.startMs < c.nextStart)) c.nextStart = b.startMs;
+      } else if (b.status === 'refunded') {
+        c.refundedPaise += b.amountPaise;
+      }
+      stats.set(b.customerId, c);
+    }
+    let rows = (users || []).map((u) => {
+      const c = stats.get(u.id) || { paid: 0, paise: 0, refundedPaise: 0, lastStart: 0, nextStart: null };
+      return { id: u.id, name: u.name, email: u.email, joinedAt: u.createdAt, bookings: c.paid, spent: c.paise / 100, refunded: c.refundedPaise / 100, lastBookingAt: c.lastStart || null, nextBookingAt: c.nextStart };
+    });
+    if (text) rows = rows.filter((r) => `${r.name} ${r.email}`.toLowerCase().includes(text));
+    const sorts = {
+      spent: (a, b) => b.spent - a.spent || b.joinedAt - a.joinedAt,
+      bookings: (a, b) => b.bookings - a.bookings || b.spent - a.spent,
+      newest: (a, b) => b.joinedAt - a.joinedAt,
+      name: (a, b) => String(a.name).localeCompare(String(b.name)),
+    };
+    const sort = Object.prototype.hasOwnProperty.call(sorts, query.sort) ? query.sort : 'spent';
+    rows.sort(sorts[sort]);
+    const pageSize = Math.min(100, Math.max(10, Math.floor(Number(query.pageSize)) || 25));
+    const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+    const page = Math.min(pages, Math.max(1, Math.floor(Number(query.page)) || 1));
+    return {
+      serverTime: now,
+      utcOffsetMinutes: this.config.utcOffsetMinutes,
+      filters: { q: text, sort },
+      page,
+      pages,
+      pageSize,
+      total: rows.length,
+      rows: rows.slice((page - 1) * pageSize, page * pageSize),
+    };
+  }
+
   // ---- A customer's own bookings -------------------------------------------------------------------
   // Paid, cancelled-by-the-operator and refunded bookings that were made while signed in as this customer.
   forCustomer(customerId) {
@@ -805,7 +1062,7 @@ class BookingService {
   // Sample bookings for a demonstration. Only while payments are simulated; they are in the past and marked sample.
   addSampleData() {
     if (this.paymentMode !== 'demo') {
-      throw new HttpError(409, 'not_allowed', 'Sample bookings can only be added while payments are in test mode (no Razorpay keys).');
+      throw new HttpError(409, 'not_allowed', 'Sample bookings can only be added when running on your own computer without Razorpay keys. A live site only ever shows real bookings.');
     }
     this.store.bookings = this.store.bookings.filter((b) => !b.sample);
     const made = sampleBookings({ existing: this.store.bookings, now: this.now(), config: this.config, newRef: () => this.newRef() });

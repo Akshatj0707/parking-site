@@ -157,7 +157,7 @@ function analytics(bookings, { now, config, query = {} }) {
     insights.push(`On ${todayRow.label} the lot collected ${inr(rupees(todayRow.paise))} from ${todayRow.payments} payment${todayRow.payments === 1 ? '' : 's'}.` +
       (before && before.payments ? ` That is ${todayRow.paise >= before.paise ? inr(rupees(todayRow.paise - before.paise)) + ' more' : inr(rupees(before.paise - todayRow.paise)) + ' less'} than ${before.label}.` : ''));
     if (peak) {
-      insights.push(`Busiest time: ${peak.label}, with about ${Math.max(1, Math.round(peak.parked))} vehicle${Math.round(peak.parked) === 1 ? '' : 's'} parked at once on an average day (${peak.utilisation}% of all ${TOTAL_BAYS} bays).`);
+      insights.push(`Busiest time: ${peak.label}, with about ${Math.max(1, Math.round(peak.parked))} vehicle${Math.max(1, Math.round(peak.parked)) === 1 ? '' : 's'} parked at once on an average day (${peak.utilisation}% of all ${TOTAL_BAYS} bays).`);
       if (peak.window.to - peak.window.from > 1) insights.push(`The busy stretch is about ${peak.window.label}.`);
     }
     if (mostArrivals) insights.push(`Most vehicles arrive between ${hourName(mostArrivals.hour)} and ${hourName((mostArrivals.hour + 1) % 24)}, about ${mostArrivals.arrivals.total} a day.`);
@@ -198,6 +198,153 @@ function analytics(bookings, { now, config, query = {} }) {
     mostArrivals: mostArrivals ? { hour: mostArrivals.hour, label: mostArrivals.label, perDay: mostArrivals.arrivals.total } : null,
     insights,
     sample: { present: sampleCount > 0, count: sampleCount },
+  };
+}
+
+// ---- The owner's overview ---------------------------------------------------------------------------------------
+// The numbers a business owner looks at first: money (today, this week, this month, all time), how full the lot is,
+// how many customers come back, which weekdays and months earn most, and the busiest hours. `users` are the customer
+// accounts (only their names, e-mail addresses and ids are used).
+
+function overview(bookings, users, { now, config }) {
+  const off = config.utcOffsetMinutes;
+  const today = S.lotDateString(now, off);
+  const dayStart = S.startMsFromLot(today, '00:00', off);
+  const parts = S.lotParts(now, off);
+  const monthKey = (y, mo) => `${y}-${String(mo).padStart(2, '0')}`;
+  const monthStart = (y, mo) => S.startMsFromLot(`${monthKey(y, mo)}-01`, '00:00', off);
+  const prev = parts.mo === 1 ? { y: parts.y - 1, mo: 12 } : { y: parts.y, mo: parts.mo - 1 };
+  const thisMonthStart = monthStart(parts.y, parts.mo);
+  const lastMonthStart = monthStart(prev.y, prev.mo);
+  const weekStart = dayStart - 6 * DAY;
+
+  const sum = { today: 0, yesterday: 0, last7: 0, thisMonth: 0, lastMonth: 0, allTime: 0 };
+  const refunded = { today: 0, last7: 0, thisMonth: 0, allTime: 0 };
+  let paidCount = 0;
+  let paidToday = 0;
+  let upcoming = 0;
+  let activeNow = 0;
+  let hoursTotal = 0;
+  let cancelled = 0;
+  const inUse = { car: new Set(), bike: new Set() };
+  const weekdays = WEEKDAYS.map((label) => ({ label, bookings: 0, paise: 0 }));
+  const months = [];
+  const monthIndex = {};
+  for (let i = 5; i >= 0; i--) {
+    let y = parts.y;
+    let mo = parts.mo - i;
+    while (mo < 1) {
+      mo += 12;
+      y -= 1;
+    }
+    monthIndex[monthKey(y, mo)] = months.length;
+    months.push({ label: `${MONTHS[mo - 1]} ${y}`, bookings: 0, paise: 0 });
+  }
+  const vehicles = { car: { bookings: 0, paise: 0 }, bike: { bookings: 0, paise: 0 } };
+  const perCustomer = new Map();
+
+  for (const b of bookings) {
+    if (b.status === 'refunded') {
+      cancelled += 1;
+      const at = b.refundedAt || 0;
+      refunded.allTime += b.amountPaise;
+      if (at >= dayStart) refunded.today += b.amountPaise;
+      if (at >= weekStart) refunded.last7 += b.amountPaise;
+      if (at >= thisMonthStart) refunded.thisMonth += b.amountPaise;
+    } else if (b.status === 'cancelled' && b.cancelReason === 'operator') {
+      cancelled += 1;
+    }
+    if (b.status !== 'paid') continue;
+
+    paidCount += 1;
+    hoursTotal += b.hours;
+    sum.allTime += b.amountPaise;
+    const at = b.paidAt || b.createdAt;
+    if (at >= dayStart) {
+      sum.today += b.amountPaise;
+      paidToday += 1;
+    } else if (at >= dayStart - DAY) sum.yesterday += b.amountPaise;
+    if (at >= weekStart) sum.last7 += b.amountPaise;
+    if (at >= thisMonthStart) sum.thisMonth += b.amountPaise;
+    else if (at >= lastMonthStart) sum.lastMonth += b.amountPaise;
+
+    if (b.startMs > now) upcoming += 1;
+    else if (b.endMs > now) {
+      activeNow += 1;
+      inUse[b.vehicle].add(b.bay);
+    }
+    const wd = weekdays[S.lotParts(b.startMs, off).dow];
+    wd.bookings += 1;
+    wd.paise += b.amountPaise;
+    const pp = S.lotParts(at, off);
+    const mi = monthIndex[monthKey(pp.y, pp.mo)];
+    if (mi !== undefined) {
+      months[mi].bookings += 1;
+      months[mi].paise += b.amountPaise;
+    }
+    vehicles[b.vehicle].bookings += 1;
+    vehicles[b.vehicle].paise += b.amountPaise;
+    if (b.customerId) {
+      const c = perCustomer.get(b.customerId) || { bookings: 0, paise: 0 };
+      c.bookings += 1;
+      c.paise += b.amountPaise;
+      perCustomer.set(b.customerId, c);
+    }
+  }
+
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const top = [...perCustomer.entries()]
+    .map(([id, c]) => ({ id, ...c, user: byId.get(id) }))
+    .filter((c) => c.user)
+    .sort((a, b) => b.paise - a.paise)
+    .slice(0, 5)
+    .map((c) => ({ name: c.user.name, email: c.user.email, bookings: c.bookings, spent: rupees(c.paise) }));
+  const repeat = [...perCustomer.values()].filter((c) => c.bookings >= 2).length;
+  const buyers = perCustomer.size;
+  const bayTotals = { car: LOT.car.total, bike: LOT.bike.total };
+  const occupied = inUse.car.size + inUse.bike.size;
+  const ever = paidCount + cancelled;
+  const busiest = analytics(bookings, { now, config, query: { days: 30 } });
+  let bestWeekday = null;
+  weekdays.forEach((d) => {
+    if (d.paise > 0 && (!bestWeekday || d.paise > bestWeekday.paise)) bestWeekday = d;
+  });
+
+  return {
+    serverTime: now,
+    utcOffsetMinutes: off,
+    today,
+    collection: Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, rupees(v)])),
+    refunded: Object.fromEntries(Object.entries(refunded).map(([k, v]) => [k, rupees(v)])),
+    bookings: {
+      paid: paidCount,
+      paidToday,
+      upcoming,
+      activeNow,
+      cancelledOrRefunded: cancelled,
+      cancellationRate: ever ? round1((cancelled / ever) * 100) : 0,
+    },
+    average: { booking: paidCount ? rupees(sum.allTime / paidCount) : 0, hours: paidCount ? round1(hoursTotal / paidCount) : 0 },
+    occupancy: {
+      car: { inUse: inUse.car.size, total: bayTotals.car },
+      bike: { inUse: inUse.bike.size, total: bayTotals.bike },
+      percent: round1((occupied / TOTAL_BAYS) * 100),
+    },
+    customers: {
+      registered: users.length,
+      withBookings: buyers,
+      repeat,
+      repeatRate: buyers ? round1((repeat / buyers) * 100) : 0,
+      newLast30Days: users.filter((u) => u.createdAt >= now - 30 * DAY).length,
+    },
+    weekdays: weekdays.map((d) => ({ label: d.label, bookings: d.bookings, collection: rupees(d.paise) })),
+    bestWeekday: bestWeekday ? { label: bestWeekday.label, collection: rupees(bestWeekday.paise), bookings: bestWeekday.bookings } : null,
+    months: months.map((m) => ({ label: m.label, bookings: m.bookings, collection: rupees(m.paise) })),
+    vehicles: { car: { bookings: vehicles.car.bookings, collection: rupees(vehicles.car.paise) }, bike: { bookings: vehicles.bike.bookings, collection: rupees(vehicles.bike.paise) } },
+    topCustomers: top,
+    peak: busiest.peak,
+    mostArrivals: busiest.mostArrivals,
+    bays: { car: LOT.car.total, bike: LOT.bike.total, total: TOTAL_BAYS },
   };
 }
 
@@ -333,4 +480,4 @@ function sampleBookings({ existing, now, config, newRef, days = 14, seed = 20261
   return out;
 }
 
-module.exports = { analytics, sampleBookings, hourLabel, shiftDate, RANGES };
+module.exports = { analytics, overview, sampleBookings, hourLabel, shiftDate, RANGES };

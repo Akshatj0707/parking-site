@@ -14,7 +14,7 @@
     const next = new URLSearchParams(location.search).get('next');
     return next && /^\/(?!\/)[A-Za-z0-9\-._~/?=&%]*$/.test(next) ? next : null;
   }
-  const operatorPath = (path) => /^\/(dashboard|analytics)(\/|\?|$)/.test(path);
+  const operatorPath = (path) => /^\/(dashboard|analytics|business|bookings|customers)(\/|\?|$)/.test(path);
 
   function field(id, label, attrs, help) {
     const input = h('input', Object.assign({ class: 'input', id, name: id, required: true }, attrs));
@@ -113,7 +113,7 @@
       ...formShell({ eyebrow: 'Signed in', title: 'You are signed in', lead: isAdmin ? `Signed in as the operator (${user.name}).` : `Signed in as ${user.name}.` }),
       h('div', { class: 'row' },
         isAdmin ? h('a', { class: 'btn btn-navy', href: '/dashboard' }, 'Open the dashboard') : h('a', { class: 'btn btn-navy', href: '/account' }, 'My bookings'),
-        isAdmin ? h('a', { class: 'btn btn-outline', href: '/analytics' }, 'Analytics') : h('a', { class: 'btn btn-outline', href: '/book' }, 'Book a bay'))
+        isAdmin ? h('a', { class: 'btn btn-outline', href: '/business' }, 'Business overview') : h('a', { class: 'btn btn-outline', href: '/book' }, 'Book a bay'))
     );
   }
 

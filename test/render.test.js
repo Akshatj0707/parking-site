@@ -337,7 +337,7 @@ test('render-free.yaml needs nothing typed: no form boxes, a password that Rende
   const text = read('render-free.yaml');
   assert.doesNotMatch(text, /rzp_(test|live)_[A-Za-z0-9]{6,}/, 'no Razorpay key in the file');
   assert.doesNotMatch(text, /sync:\s*false/, 'no box in Render\'s form: the owner presses Deploy and types nothing');
-  assert.match(text, /^\s+value:\s*"on"\s*(#.*)?$/m, 'on stays in quotes: an unquoted on is a true/false word to some YAML readers');
+  assert.doesNotMatch(text, /DEMO_PAYMENTS/, 'there is no pretend-payment switch in the file');
   const free = varsOf(freeBlueprint());
   const paid = varsOf(blueprint());
 
@@ -352,14 +352,14 @@ test('render-free.yaml needs nothing typed: no form boxes, a password that Rende
     [['OPERATOR_PASSWORD', true]],
   );
   assert.equal(free.NODE_ENV.value, 'production');
-  assert.equal(free.DEMO_PAYMENTS.value, 'on');
+  assert.ok(!('DEMO_PAYMENTS' in free), 'there is no pretend payment any more');
   assert.equal(free.NODE_VERSION.value, paid.NODE_VERSION.value);
   // Razorpay's keys and webhook secret are added later, under Environment in Render. They are never in this file.
   for (const key of ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET']) assert.ok(!(key in free), `${key} is added in Render later, not here`);
   for (const key of ['TRUST_PROXY', 'PORT', 'HOST']) assert.ok(!(key in free), `${key} is chosen by the site on Render`);
 });
 
-test('render-free.yaml gives a site that works at once: payment is simulated, and the dashboard asks for the made-up password', async (t) => {
+test('render-free.yaml never pretends to take a payment: booking is off until Razorpay keys are added, and the admin password is made up', async (t) => {
   const { DATA_DIR, ...fixed } = Object.fromEntries(
     Object.values(varsOf(freeBlueprint())).filter((v) => 'value' in v).map((v) => [v.key, v.value]),
   );
@@ -370,34 +370,35 @@ test('render-free.yaml gives a site that works at once: payment is simulated, an
 
   const c = loadConfig(env);
   assert.equal(c.production, true);
-  assert.equal(c.demoPayments, true);
   assert.equal(c.razorpay.configured, false);
   assert.equal(c.operator.password, password);
 
   const s = await makeSite({ env }); // makeSite keeps the bookings in its own temporary folder
   t.after(() => s.close());
-  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'demo', keyId: null, test: true });
-  const { created, paid } = await bookAndPay(s, car());
-  assert.equal(created.status, 201, created.text);
-  assert.equal(paid.status, 200, paid.text);
-  assert.equal(paid.json.booking.status, 'paid');
+  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'unavailable', reason: 'no_keys', keyId: null, test: true });
+  assert.equal((await s.post('/api/bookings', car())).status, 503, 'nobody can "book" without paying through Razorpay');
+  assert.equal(s.store.bookings.length, 0);
 
-  assert.equal((await s.get('/api/dashboard')).status, 401, 'the dashboard is closed without the password');
+  assert.equal((await s.get('/api/dashboard')).status, 401, 'the admin pages are closed without the password');
   assert.equal((await s.get('/api/dashboard', { headers: { authorization: basic('operator', 'wrong') } })).status, 401);
   const open = await s.get('/api/dashboard', { headers: { authorization: basic('operator', password) } });
   assert.equal(open.status, 200, open.text);
-  assert.equal(open.json.paymentMode, 'demo');
+  assert.equal(open.json.paymentMode, 'unavailable');
+  assert.match(open.json.payments.problems[0].text, /RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET/);
 });
 
-test('once Razorpay keys are added in Render, the demo switches to Razorpay by itself', async (t) => {
+test('once Razorpay TEST keys are added in Render, the site takes Razorpay payments by itself', async (t) => {
   const { DATA_DIR, ...fixed } = Object.fromEntries(
     Object.values(varsOf(freeBlueprint())).filter((v) => 'value' in v).map((v) => [v.key, v.value]),
   );
   assert.ok(DATA_DIR);
   const s = await makeSite({ env: { ...fixed, RENDER: 'true', OPERATOR_PASSWORD: 'made up by Render', RAZORPAY_KEY_ID: 'rzp_test_abc123', RAZORPAY_KEY_SECRET: 'test_secret_value_1234' } });
   t.after(() => s.close());
-  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'razorpay', keyId: 'rzp_test_abc123', test: true });
-  assert.equal((await s.post('/api/payments/demo-confirm', { bookingId: 'bk_0123456789abcdef' })).status, 404, 'no pretend payment once the real one is on');
+  assert.deepEqual((await s.get('/api/config')).json.payments, { mode: 'razorpay', reason: null, keyId: 'rzp_test_abc123', test: true });
+  assert.equal((await s.post('/api/payments/demo-confirm', { bookingId: 'bk_0123456789abcdef' })).status, 404, 'no pretend payment next to the real one');
+  const created = await s.post('/api/bookings', car());
+  assert.equal(created.status, 201, created.text);
+  assert.match(created.json.payment.orderId, /^order_/, 'the booking waits for a real Razorpay payment');
 });
 
 test('render-free.yaml saves bookings in a temporary folder, and the site says plainly that they do not last', () => {
@@ -427,7 +428,7 @@ test('every setting in render-free.yaml is one the site reads, and is in .env.ex
 
 test('the guide and the README explain the free demo and what it cannot do', () => {
   const guide = read('DEPLOY-RENDER.md');
-  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys', 'no boxes', 'DEMO_PAYMENTS', 'OPERATOR_PASSWORD', 'Environment', 'free-demo', 'Test mode']) {
+  for (const word of ['render-free.yaml', 'Blueprint Path', 'A free demo first', 'parking-site-demo', '15 minutes', 'test keys', 'no boxes', 'OPERATOR_PASSWORD', 'Environment', 'free-demo', 'Test Mode']) {
     assert.ok(guide.includes(word), `the guide mentions ${word}`);
   }
   // Every setting that the free file makes up or fixes is explained somewhere a reader will look.
@@ -437,7 +438,7 @@ test('the guide and the README explain the free demo and what it cannot do', () 
   }
   const readme = read('README.md');
   assert.ok(readme.includes('render-free.yaml'), 'the README lists render-free.yaml');
-  assert.match(readme, /^\| `DEMO_PAYMENTS` \|/m, 'the README settings table has DEMO_PAYMENTS');
+  assert.doesNotMatch(readme, /^\| `DEMO_PAYMENTS` \|/m, 'DEMO_PAYMENTS is gone from the README settings table');
 });
 
 test('render.yaml is the paid blueprint, except on the free-demo branch where it is the free demo', () => {
