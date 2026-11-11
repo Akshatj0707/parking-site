@@ -68,9 +68,19 @@ function loadConfig(env = process.env) {
   // On Render: is the bookings folder on the disk (true), or somewhere that is wiped at every restart (false)?
   // Nothing is known about other hosts, so there it is null.
   const dataOnRenderDisk = onRender ? isInside(dataDir, RENDER_DISK_PATH) : null;
-  // Live keys on a host that forgets its files (Render's free size) would take real money and then lose the bookings.
-  // Booking is switched off in that case, and the operator's dashboard says why.
-  const unsafeLiveStorage = live && onRender && dataOnRenderDisk === false;
+  // An outside database (DATABASE_URL, any Postgres such as Neon) keeps bookings and accounts safe whatever the host does
+  // with its own files, so a free Render service can use it. Test and live records are kept apart in it, like the test
+  // and live folders of a Render disk.
+  const databaseUrl = String(env.DATABASE_URL || '').trim();
+  let databaseHost = null;
+  try {
+    databaseHost = databaseUrl ? new URL(databaseUrl).hostname || null : null;
+  } catch (err) {
+    databaseHost = null;
+  }
+  // Live keys on a host that forgets its files (Render's free size) would take real money and then lose the bookings,
+  // unless the bookings are kept in a database. Booking is switched off in that case, and the dashboard says why.
+  const unsafeLiveStorage = live && onRender && dataOnRenderDisk === false && !databaseUrl;
 
   return {
     production,
@@ -81,6 +91,14 @@ function loadConfig(env = process.env) {
     dataDir,
     onRender,
     dataOnRenderDisk,
+    database: {
+      url: databaseUrl,
+      enabled: Boolean(databaseUrl),
+      // false when DATABASE_URL is set to something that is not a Postgres address: the server then refuses to start
+      valid: !databaseUrl || (/^postgres(ql)?:\/\//i.test(databaseUrl) && Boolean(databaseHost)),
+      host: databaseHost, // shown in the log and on the dashboard; the password is never shown
+      scope: live ? 'live' : 'test',
+    },
     unsafeLiveStorage,
     demoSettingIgnored,
     // Escape hatch: if a browser's security rules ever block the Razorpay popup, set DISABLE_CSP=1 and restart.

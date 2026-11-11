@@ -416,6 +416,24 @@
 
   function storageBlock(r) {
     const s = r.storage;
+    if (s.kind === 'database') {
+      return h(
+        'div',
+        { class: 'stack g12' },
+        h('h3', { class: 'sub-h' }, 'Where bookings are saved'),
+        h(
+          'dl',
+          { class: 'check-facts' },
+          fact('Saved in', h('span', { class: 'mono' }, `the database at ${s.database}`)),
+          fact('Bookings in it', String(s.bookings)),
+          fact('Site running for', sinceText(r.uptimeSeconds)),
+          fact('Node.js', r.node)
+        ),
+        s.databaseError
+          ? h('p', { class: 'msg err', role: 'alert' }, h('b', null, 'The database is not accepting changes right now. '), `${s.databaseError}. New bookings are paused and every change is tried again automatically. Check that the database is running and that DATABASE_URL in Render is right.`)
+          : h('p', { class: 'msg ok' }, 'Yes. Bookings and customer accounts are kept in the database, so they stay when the site sleeps, restarts or is updated.')
+      );
+    }
     const warn =
       s.onRender && s.onDisk === false
         ? h('p', { class: 'msg err', role: 'alert' }, h('b', null, 'Bookings are not on the Render disk. '), `They are lost every time the site restarts or is updated. Remove the DATA_DIR setting in Render, or point it at a folder inside ${s.diskPath}. Exception: the free test site (render-free.yaml) has no disk, so there this is expected: leave DATA_DIR as it is, and use Razorpay test keys only (live keys switch booking off there, so no real money is taken for bookings that could be lost).`)

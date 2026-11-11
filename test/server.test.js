@@ -38,7 +38,7 @@ async function start(t, dataDir, extraEnv = {}) {
   const port = await freePort();
   const blank = Object.fromEntries(
     ['NODE_ENV', 'HOST', 'TRUST_PROXY', 'RENDER', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'OPERATOR_USER', 'OPERATOR_PASSWORD', 'DISABLE_CSP',
-      'DEMO_PAYMENTS', 'ANTHROPIC_API_KEY', 'CHAT_ENABLED', 'CHAT_MODEL', 'CHAT_DAILY_LIMIT'].map((key) => [key, ''])
+      'DEMO_PAYMENTS', 'DATABASE_URL', 'ANTHROPIC_API_KEY', 'CHAT_ENABLED', 'CHAT_MODEL', 'CHAT_DAILY_LIMIT'].map((key) => [key, ''])
   );
   const child = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
@@ -163,4 +163,21 @@ test('on start-up, a refund that the last shutdown cut off is marked, and the lo
   assert.equal(dash.attention[0].status, 'refund_failed');
   assert.equal(dash.attention[0].refundInterrupted, true);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'bookings.json'), 'utf8')).bookings[0].status, 'refund_failed');
+});
+
+test('a DATABASE_URL that is not a Postgres address stops the site with one clear line, not a crash with a stack trace', async (t) => {
+  const dir = tempDir(t);
+  const child = spawn(process.execPath, ['server.js'], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(await freePort()), DATA_DIR: dir, DATABASE_URL: 'mysql://user:topsecret@db.example.test/x', NODE_ENV: '', RENDER: '', RAZORPAY_KEY_ID: '', RAZORPAY_KEY_SECRET: '' },
+  });
+  let out = '';
+  child.stdout.on('data', (d) => (out += d));
+  child.stderr.on('data', (d) => (out += d));
+  const code = await new Promise((resolve) => child.on('exit', resolve));
+  assert.equal(code, 1);
+  assert.match(out, /DATABASE_URL is not a Postgres address/);
+  assert.ok(!out.includes('topsecret'), 'the password is not printed');
+  assert.ok(!/\n\s+at /.test(out), 'no stack trace');
+  assert.deepEqual(fs.readdirSync(dir), [], 'nothing was written to files either');
 });

@@ -4,9 +4,13 @@
 #     a minute) and may restart it at any time.
 #   - No disk, because Render's free size cannot have one. Bookings and customer accounts are kept in a temporary folder
 #     (DATA_DIR below) and are LOST whenever the site sleeps, restarts or is updated.
-#   - So this size is for trying the site with Razorpay TEST keys (rzp_test_...) only. If live keys (rzp_live_...) are set
-#     here, the site switches booking off by itself, so no customer ever pays real money for a booking that could be lost.
-#     For a real business use render.yaml (about $7 a month, plus $0.25 for the disk).
+#   - So on its own this size is for trying the site with Razorpay TEST keys (rzp_test_...). If live keys (rzp_live_...) are
+#     set here, the site switches booking off by itself, so no customer ever pays real money for a booking that could be lost.
+#   - Unless a database is connected: add DATABASE_URL (the address of a free Postgres, for example from neon.com) under
+#     Environment in the Render dashboard and the bookings and accounts are kept there, not in the temporary folder. Live keys
+#     then work on this free size too (DEPLOY-RENDER.md, "Real money on the free size"). DATABASE_URL holds a password, so it
+#     is typed in the dashboard, never in this file.
+#     For more visitors and no sleeping use render.yaml (about $7 a month, plus $0.25 for the disk).
 #   - Nothing is pretended. Payment is always Razorpay's own window. Until RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are added
 #     (TEST keys, from the Razorpay dashboard in Test Mode) under Environment in the Render dashboard, booking is switched
 #     off and the owner's pages say why. The webhook secret (RAZORPAY_WEBHOOK_SECRET) and the business details (SITE_NAME,
@@ -38,6 +42,7 @@ services:
         value: production
       # There is no disk to save to, so bookings go in a temporary folder. The site shows a red "not on the Render disk"
       # message about it, which is expected here: the folder is emptied whenever the site sleeps, restarts or is updated.
+      # (Once DATABASE_URL is added under Environment, nothing is saved in this folder at all.)
       - key: DATA_DIR
         value: /tmp/bayfind-demo-data
       # The admin password for /login (the user name is "operator"). Render makes one up. To see it, or to put in one of

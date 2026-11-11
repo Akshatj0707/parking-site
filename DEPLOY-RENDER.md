@@ -92,9 +92,9 @@ Render has a free size, and the file `render-free.yaml` in your repository sets 
 |---|---|---|
 | Price | $0 | about $7.25 a month |
 | When nobody visits | It goes to sleep after 15 minutes. The next visitor waits about a minute while it wakes up. | Always awake |
-| Bookings and customer accounts | **Erased** whenever the site sleeps, restarts or is updated (Render may also restart it at any time) | Kept on the disk |
-| Payments | Razorpay **test keys** (`rzp_test_…`) only: Razorpay's test window, no real money. Live keys switch booking off. | Test keys first, then live (step 8) |
-| Real customers and real money | **Never** | Yes, after step 8 |
+| Bookings and customer accounts | **Erased** whenever the site sleeps, restarts or is updated (Render may also restart it at any time), unless you connect a free database (see "Real money on the free size" below) | Kept on the disk |
+| Payments | Razorpay **test keys** (`rzp_test_…`): Razorpay's test window, no real money. Live keys switch booking off, unless a free database is connected. | Test keys first, then live (step 8) |
+| Real customers and real money | Only with a free database connected (below), and after step 8 | Yes, after step 8 |
 
 ### The quick way: tap a link and press one button
 
@@ -124,7 +124,27 @@ Then follow steps 4, 6 and 7 as they are written, with these changes:
 - **Step 7:** skip item 6 (bookings surviving a restart). On the free demo they do **not** survive one, by design. Make your test booking soon after the site wakes up, and look at it in the dashboard straight away.
 - **Skip** step 3 (the link did it), step 5 (your own address), step 8 (real payments) and the backups in step 9, because there is nothing worth backing up. Step 1 is needed only for the test keys and the webhook secret.
 
-**When you want real customers:** do not turn the demo into the real site. Create the real one from `render.yaml` on the `main` branch (step 3, with **Blueprint Path** left as it is), and then delete the demo in Render (open the demo service, choose **Settings**, scroll to the bottom and press **Delete Web Service**), so that nobody finds it by mistake. Never put live keys (`rzp_live_…`) on the demo: the site refuses to take bookings with live keys on temporary storage, because real payments would be taken for bookings that can be lost.
+### Real money on the free size: a free database
+
+The free size forgets its files, so by itself it must not take real money. A **free database** fixes that: the site keeps its bookings and customer accounts in the database, and the site refuses to start without it, so a booking that was paid for is never lost. It costs nothing, and the free Render service stays free. You still need Razorpay's approval of your business and live keys (step 8), and you accept what the free size is: it sleeps after 15 minutes without visitors, and the next visitor waits about a minute for it to wake.
+
+**Create the database (about 5 minutes).** These are the steps on Neon's site; a button may be named a little differently by the time you read this.
+
+1. Open `neon.com` and choose **Sign up** (with GitHub, Google or an email address). Neon's plan page lists a Free plan with 1 GB of storage per project; it does not say whether a card is asked for. If Neon asks for one and you would rather not, any other Postgres database works the same way: all the site needs is its address.
+2. Create a project: name it `bayfind`, and choose the region nearest the site, **AWS Asia Pacific (Singapore)**, because the Render demo is in Singapore.
+3. On the project's page press **Connect** and copy the **connection string**. It starts with `postgresql://`, ends with `?sslmode=require`, and **contains your database password**. Treat it like a key.
+4. In Render open the service, choose **Environment**, press **+ Add Environment Variable**, name it `DATABASE_URL`, paste the connection string as the value, and choose **Save and deploy**. Paste it only there: never in a message and never on GitHub.
+5. **Check:** after a minute the site's log says `Bookings    saved in the database at …` and no longer shows the WARNING about the Render disk. In the owner's **Setup check**, the storage question is answered with **Yes. Bookings and customer accounts are kept in the database**. Make a test booking, then in Render choose **Manual Deploy → Deploy latest commit**: the booking is still there afterwards.
+
+Then add your live Razorpay keys (step 8c) as `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` under **Environment**. The site starts with a clean list of **live** bookings (the test ones stay apart in the database and never block a bay).
+
+What to know:
+
+- If the database is unreachable, booking pauses with "Nothing was charged" and the Setup check turns red; it resumes by itself when the database is back.
+- Razorpay's webhook (step 6) is a safety net for customers who pay and then close the page. A sleeping free site cannot answer it at once, but Razorpay tries again, and the site also checks pending payments with Razorpay about once a minute while it is awake.
+- The site stays free, but it is a small one: many visitors at the same time, a slow first visit after sleep, and no Render support. If it grows, move to `render.yaml` (about $7.25 a month); the database can stay as it is.
+
+**When you want real customers:** do not turn the demo into the real site. Create the real one from `render.yaml` on the `main` branch (step 3, with **Blueprint Path** left as it is), and then delete the demo in Render (open the demo service, choose **Settings**, scroll to the bottom and press **Delete Web Service**), so that nobody finds it by mistake. Never put live keys (`rzp_live_…`) on the demo unless a database is connected (above): the site refuses to take bookings with live keys on temporary storage, because real payments would be taken for bookings that can be lost.
 
 ---
 

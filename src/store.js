@@ -5,13 +5,40 @@ const path = require('path');
 
 // Keeps every booking in memory and in one JSON file (data/bookings.json).
 // Writes are synchronous and the file is replaced in one step, so a crash cannot leave half a file.
-// This suits one server process and a small lot. For several servers or heavy traffic, use a real database.
+// This suits one server process and a small lot.
+//
+// With a `sync` (see docsync.js) the bookings live in the database instead: they are loaded when the site starts, and
+// save() passes every change on to the database in the background. No file is read or written then.
 class Store {
-  constructor(dir) {
+  constructor(dir, { sync = null } = {}) {
     this.dir = dir;
     this.file = path.join(dir, 'bookings.json');
+    this.sync = sync;
     this.bookings = [];
-    this.load();
+    if (sync) {
+      this.bookings = sync.initial;
+      sync.list = () => this.bookings;
+      sync.adopted = (doc) => {
+        if (!this.bookings.some((b) => b.id === doc.id)) this.bookings.push(doc);
+      };
+    } else {
+      this.load();
+    }
+  }
+
+  // The database's complaint when it is not accepting changes, otherwise null. Always null for files.
+  get syncError() {
+    return this.sync ? this.sync.errorText : null;
+  }
+
+  // Resolves when the database holds every change so far (at once for files). Rejects if the database refuses.
+  settled() {
+    return this.sync ? this.sync.settled() : Promise.resolve();
+  }
+
+  // As settled(), but never rejects and never waits longer than `ms`: true if everything is saved.
+  settledWithin(ms) {
+    return this.sync ? this.sync.settledWithin(ms) : Promise.resolve(true);
   }
 
   load() {
@@ -29,6 +56,10 @@ class Store {
   }
 
   save() {
+    if (this.sync) {
+      this.sync.schedule();
+      return;
+    }
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ version: 1, bookings: this.bookings }, null, 2));
     fs.renameSync(tmp, this.file);

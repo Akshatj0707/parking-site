@@ -15,6 +15,7 @@
   "license": "UNLICENSED",
   "dependencies": {
     "express": "^4.22.3",
+    "pg": "^8.23.1",
     "razorpay": "^2.9.8"
   }
 }

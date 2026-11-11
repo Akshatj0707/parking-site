@@ -56,6 +56,23 @@ class BookingService {
     this.now = now;
     this.log = log;
     this.reconciling = false;
+    // With a database: asks it for records another copy of the site saved (set by app.js). Null when bookings are in files.
+    this.adopt = null;
+  }
+
+  // The booking that belongs to a Razorpay order. If this copy of the site does not know the order and the bookings are in a
+  // database, it looks there once: during an update the previous copy may have saved the booking a moment ago.
+  async findByOrder(orderId) {
+    let booking = this.store.byOrderId(orderId);
+    if (!booking && this.adopt) {
+      try {
+        await this.adopt();
+      } catch (err) {
+        this.log.error(`Looking for the booking of order ${orderId} in the database failed: ${err.message}`);
+      }
+      booking = this.store.byOrderId(orderId);
+    }
+    return booking;
   }
 
   // razorpay    keys are set: the real Razorpay checkout (test keys give Razorpay's test window, live keys take real money)
@@ -77,8 +94,14 @@ class BookingService {
   paymentStatus() {
     const cfg = this.config;
     const mode = this.paymentMode;
-    const persistent = cfg.dataOnRenderDisk !== false;
+    const persistent = cfg.database.enabled || cfg.dataOnRenderDisk !== false;
     const problems = [];
+    if (this.store.syncError) {
+      problems.push({
+        level: 'bad',
+        text: `The database is not accepting changes right now (${this.store.syncError}). New bookings are paused until it is back, and every change is tried again automatically. Check that the database is running and that DATABASE_URL in Render is right.`,
+      });
+    }
     if (mode === 'unavailable' && this.unavailableReason === 'no_keys') {
       problems.push({
         level: 'bad',
@@ -88,7 +111,7 @@ class BookingService {
     if (mode === 'unavailable' && this.unavailableReason === 'temporary_storage') {
       problems.push({
         level: 'bad',
-        text: 'Live Razorpay keys are set, but this site keeps its bookings on temporary storage that is wiped whenever the site restarts. Booking is switched off so that no customer pays for a booking that could be lost. Move to a Render plan with a disk (render.yaml), or use Razorpay test keys.',
+        text: 'Live Razorpay keys are set, but this site keeps its bookings on temporary storage that is wiped whenever the site restarts. Booking is switched off so that no customer pays for a booking that could be lost. Connect a free database (add DATABASE_URL in Render, the README shows how), move to a Render plan with a disk (render.yaml), or use Razorpay test keys.',
       });
     }
     if (mode === 'razorpay' && !cfg.razorpay.live) {
@@ -116,7 +139,8 @@ class BookingService {
       live: cfg.razorpay.configured && cfg.razorpay.live,
       webhookSet: Boolean(cfg.razorpay.webhookSecret),
       storageKept: persistent,
-      acceptingPayments: mode === 'razorpay',
+      storage: cfg.database.enabled ? 'database' : persistent ? 'disk' : 'temporary',
+      acceptingPayments: mode === 'razorpay' && !this.store.syncError,
       problems,
     };
   }
@@ -129,6 +153,14 @@ class BookingService {
     } catch (err) {
       this.log.error(`COULD NOT SAVE bookings: ${err.message}. Bookings are kept in memory until a save works. Fix the problem (disk full? folder not writable?) and do not restart the server yet.`);
     }
+  }
+
+  // persist(), and then wait (a few seconds at most) until the database has the change. For the moments where money is
+  // involved: a payment is marked paid, a refund is about to be sent. With files it returns at once. It never throws: a
+  // database that is down is logged and shown on the dashboard, and the save is tried again until it works.
+  async persistNow() {
+    this.persist();
+    await this.store.settledWithin(8000);
   }
 
   // Call once when the server starts. Nothing can be in flight then, so a booking still marked "refund_pending" was cut
@@ -352,6 +384,10 @@ class BookingService {
     if (mode === 'unavailable') {
       throw new HttpError(503, 'payments_unavailable', 'Online booking is switched off for now. Please check back soon.');
     }
+    if (this.store.syncError) {
+      // The database is not taking changes: nobody is sent to pay for a booking that could not be saved.
+      throw new HttpError(503, 'storage_unavailable', 'Booking is paused for a moment because our records cannot be saved. Nothing was charged. Please try again shortly.');
+    }
     const booking = this.hold(input);
     const amount = booking.amountPaise;
 
@@ -381,6 +417,15 @@ class BookingService {
     }
     current.orderId = order.id;
     this.persist();
+    // The order id must be safely saved BEFORE the customer sees the payment window: it is how a payment, however late
+    // it arrives (browser, webhook, the once-a-minute check), finds its booking again after a restart.
+    try {
+      await this.store.settled();
+    } catch (err) {
+      this.log.error(`Booking ${current.ref} could not be saved to the database, so the payment was not started: ${err.message}`);
+      this.discard(current.id);
+      throw new HttpError(503, 'storage_unavailable', 'Booking is paused for a moment because our records cannot be saved. Nothing was charged. Please try again shortly.');
+    }
     return {
       booking: this.view(current),
       payment: { mode: 'razorpay', keyId: this.config.razorpay.keyId, orderId: order.id, amount, currency: 'INR', name: this.config.siteName },
@@ -400,7 +445,7 @@ class BookingService {
       this.log.warn('A payment confirmation failed the signature check and was ignored.');
       throw new HttpError(400, 'bad_signature', 'We could not verify this payment. If money was taken from your account, please contact us with your payment ID.');
     }
-    const booking = this.store.byOrderId(orderId);
+    const booking = await this.findByOrder(orderId);
     if (!booking) {
       this.log.error(`Payment ${paymentId} was verified for order ${orderId}, but no booking has that order. Check the Razorpay dashboard and refund it if needed.`);
       throw new HttpError(404, 'unknown_order', `We could not match this payment to a booking. Please contact us with payment ID ${paymentId}.`);
@@ -423,7 +468,7 @@ class BookingService {
     if (!event || (event.event !== 'payment.captured' && event.event !== 'order.paid')) return { ignored: 'event' };
     const p = event.payload && event.payload.payment && event.payload.payment.entity;
     if (!p || typeof p.id !== 'string' || typeof p.order_id !== 'string') return { ignored: 'no_payment' };
-    const booking = this.store.byOrderId(p.order_id);
+    const booking = await this.findByOrder(p.order_id);
     if (!booking) return { ignored: 'unknown_order' }; // possibly another site that shares this Razorpay account
     if (p.amount !== booking.amountPaise || p.currency !== 'INR') {
       this.log.error(`Webhook for booking ${booking.ref} has amount ${p.amount} ${p.currency}, expected ${booking.amountPaise} INR. Ignored.`);
@@ -493,7 +538,7 @@ class BookingService {
       booking.paymentId = paymentId;
       booking.paidAt = now;
       booking.holdUntil = null;
-      this.persist();
+      await this.persistNow();
       this.log.info(`Booking ${booking.ref} paid: ${booking.plate}, bay ${booking.bay}, ${money(booking.amountPaise)} (${paymentId}).`);
       return { outcome: 'paid', booking };
     }
@@ -506,7 +551,7 @@ class BookingService {
     booking.paymentId = paymentId;
     booking.status = 'refund_pending';
     delete booking.refundInterrupted;
-    this.persist();
+    await this.persistNow(); // saved before the request goes out, so a restart can tell a refund was under way
 
     if (!this.razorpay) {
       // Demo mode: no money moved, so there is nothing to send back.
@@ -525,14 +570,14 @@ class BookingService {
       booking.refundId = (refund && refund.id) || null;
       booking.refundedAt = this.now();
       booking.refundError = null;
-      this.persist();
+      await this.persistNow();
       if (byOperator) this.log.warn(`Booking ${booking.ref} was cancelled by the operator and payment ${paymentId} (${money(booking.amountPaise)}) was refunded.`);
       else this.log.warn(`Booking ${booking.ref} could not be kept, so payment ${paymentId} (${money(booking.amountPaise)}) was refunded.`);
       return { outcome: 'refunded', booking };
     } catch (err) {
       booking.status = 'refund_failed';
       booking.refundError = providerError(err);
-      this.persist();
+      await this.persistNow();
       this.log.error(`REFUND FAILED for booking ${booking.ref}, payment ${paymentId}: ${booking.refundError}. Try again from the dashboard, or refund it by hand from the Razorpay dashboard.`);
       return { outcome: 'refund_failed', booking };
     }

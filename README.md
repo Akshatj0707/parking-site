@@ -246,13 +246,22 @@ The booking length (1 to 4 hours), the half-hour start times and the 7-day limit
 
 ---
 
-## 5. Your bookings are in one file
+## 5. Where your bookings are kept (a file, or a free database)
 
-Bookings are saved to `data/bookings.json` after every change. **Back this folder up.** It is created the first time the site runs. If the file is ever damaged, the site moves it aside (as `bookings.json.corrupt-…`) and starts with an empty list instead of failing.
+By default bookings are saved to `data/bookings.json`, and customer accounts to `data/users.json`, after every change. **Back this folder up.** It is created the first time the site runs. If the file is ever damaged, the site moves it aside (as `bookings.json.corrupt-…`) and starts with an empty list instead of failing.
 
 Unpaid holds and cancelled bookings older than a day are tidied away. Paid bookings are kept.
 
----
+### Or in a database (`DATABASE_URL`)
+
+Set `DATABASE_URL` to the address of any Postgres database and the site keeps the bookings and the customer accounts there instead, and writes no files at all. This is how a **free Render service can keep real bookings**: Render's free size forgets its files at every restart, a database does not. [Neon](https://neon.com) has a free Postgres (its plan page lists 1 GB of storage per project, and the database sleeps after 5 idle minutes and wakes by itself in about a second). The click-by-click steps are in `DEPLOY-RENDER.md`, under "Real money on the free size".
+
+- **Nothing to set up in the database.** The site creates its one table, `bayfind_docs`, by itself.
+- **Test and live records are kept apart**, like the test and live folders on a Render disk: when you change from Razorpay test keys to live keys the site starts with a clean list, so test bookings can never block a bay.
+- **The site never starts "empty" by mistake.** At start it loads everything from the database; if it cannot reach it (it waits about 30 seconds for a sleeping one) it stops with a clear message instead of selling bays that are already paid for.
+- **Money moments wait for the database.** A customer is sent to the payment window only after the booking, with its Razorpay order, is safely saved; if the database is down, booking pauses ("Nothing was charged") and the owner's Setup check turns red. A payment, and a refund that is about to be sent, are saved before the site moves on. Everything else is saved in the background and tried again until it works.
+- **Updates.** For a few seconds during an update two copies of the site run. A payment that reaches the new copy for a booking only the old copy knew is found in the database.
+- **Back up** with the CSV download on the owner's Bookings page. Your database provider may keep its own history; check what it offers.
 
 ## 6. Webhook (recommended once the site is online)
 
