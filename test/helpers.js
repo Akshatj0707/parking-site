@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { loadConfig } = require('../src/config');
 const { Store } = require('../src/store');
+const { openStorage } = require('../src/storage');
 const { createApp } = require('../src/app');
 const { hmacHex } = require('../src/payments');
 
@@ -68,16 +69,76 @@ function fakeRazorpay() {
   };
 }
 
+
+// A pretend database with the same methods as src/database.js, kept in memory. `state.down` makes every call fail like a
+// database that cannot be reached; `state.delayMs` makes calls slow. `data` is what a restart of the site would find.
+function fakeDatabase() {
+  const state = { down: false, delayMs: 0 };
+  const calls = { apply: [], ping: 0, init: 0 };
+  const data = new Map(); // kind -> Map(id -> JSON text)
+  let key = null;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const kind = (k) => {
+    if (!data.has(k)) data.set(k, new Map());
+    return data.get(k);
+  };
+  const gate = async () => {
+    if (state.delayMs) await sleep(state.delayMs);
+    if (state.down) throw new Error('connection refused');
+  };
+  return {
+    state,
+    calls,
+    data,
+    docs_of: (k) => [...kind(k).values()].map((j) => JSON.parse(j)),
+    async init() {
+      await gate();
+      calls.init += 1;
+    },
+    async ping() {
+      await gate();
+      calls.ping += 1;
+    },
+    async load(k) {
+      await gate();
+      return [...kind(k).values()].map((j) => JSON.parse(j)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    },
+    async ids(k) {
+      await gate();
+      return [...kind(k).keys()];
+    },
+    async docs(k, ids) {
+      await gate();
+      return ids.filter((id) => kind(k).has(id)).map((id) => JSON.parse(kind(k).get(id)));
+    },
+    async apply(k, upserts, deletes) {
+      await gate();
+      calls.apply.push({ kind: k, upserts: upserts.map((u) => u.id), deletes: [...deletes] });
+      for (const u of upserts) kind(k).set(u.id, u.json);
+      for (const id of deletes) kind(k).delete(id);
+    },
+    async sessionKey(candidate) {
+      await gate();
+      if (!key) key = candidate;
+      return key;
+    },
+    async close() {},
+  };
+}
+
 // `chat` is for the chat tests: { fetchImpl, apiUrl, timeoutMs } to stand in for Anthropic, and `log` to see what is logged.
-async function makeSite({ env = {}, razorpayKeys = false, startAt = START, existingDir, chat, log = silentLog } = {}) {
+// `database` (a fakeDatabase(), or a real Database) keeps the bookings and accounts in it instead of in files.
+async function makeSite({ env = {}, razorpayKeys = false, startAt = START, existingDir, chat, log = silentLog, database = null } = {}) {
   const dir = existingDir || fs.mkdtempSync(path.join(os.tmpdir(), 'bayfind-test-'));
   const keys = razorpayKeys ? { RAZORPAY_KEY_ID: KEY_ID, RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET } : {};
   // Most tests book without an account; the ones about accounts turn this on with env: { CUSTOMER_LOGIN_REQUIRED: 'on' }.
-  const config = loadConfig({ DATA_DIR: dir, CUSTOMER_LOGIN_REQUIRED: 'off', ...keys, ...env });
+  const databaseEnv = database ? { DATABASE_URL: 'postgresql://user:secret@db.example.test/bayfind' } : {};
+  const config = loadConfig({ DATA_DIR: dir, CUSTOMER_LOGIN_REQUIRED: 'off', ...databaseEnv, ...keys, ...env });
   const clock = { t: startAt };
-  const store = new Store(dir);
+  const storage = database ? await openStorage(config, { database, log }) : null;
+  const store = storage ? storage.store : new Store(dir);
   const fake = config.razorpay.configured ? fakeRazorpay() : null;
-  const app = createApp({ config, store, razorpay: fake, now: () => clock.t, log, chat });
+  const app = createApp({ config, store, razorpay: fake, now: () => clock.t, log, chat, storage });
   const server = await new Promise((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
     s.on('error', reject);
@@ -108,6 +169,7 @@ async function makeSite({ env = {}, razorpayKeys = false, startAt = START, exist
     dir,
     config,
     store,
+    storage,
     app,
     bookings: app.locals.bookings,
     server,
@@ -122,6 +184,7 @@ async function makeSite({ env = {}, razorpayKeys = false, startAt = START, exist
     async close() {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
+      if (storage) await storage.close();
       if (!existingDir) fs.rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -213,6 +276,6 @@ const say = (site, ...texts) => site.app.locals.chat.reply(chatBody(...texts), {
 
 module.exports = {
   KEY_ID, KEY_SECRET, WEBHOOK_SECRET, START, MINUTE,
-  fakeRazorpay, makeSite, sign, pay, bookAndPay, car, bike, AVAILABILITY_URL, webhookEvent, signedWebhook, basic,
+  fakeRazorpay, fakeDatabase, makeSite, sign, pay, bookAndPay, car, bike, AVAILABILITY_URL, webhookEvent, signedWebhook, basic,
   json, claudeMessage, claudeSays, claudeError, toolUse, fakeClaude, AI_KEY, makeChatSite, chatBody, say,
 };

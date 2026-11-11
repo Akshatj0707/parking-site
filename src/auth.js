@@ -66,11 +66,30 @@ function normalizeEmail(value) {
 
 // Customer accounts, kept in users.json next to bookings.json (written in one step, like the bookings).
 class UserStore {
-  constructor(dir) {
+  constructor(dir, { sync = null } = {}) {
     this.dir = dir;
     this.file = path.join(dir, 'users.json');
+    this.sync = sync;
     this.users = [];
-    this.load();
+    if (sync) {
+      // kept in the database (see docsync.js) instead of users.json
+      this.users = sync.initial;
+      sync.list = () => this.users;
+      sync.adopted = (doc) => {
+        if (!this.users.some((u) => u.id === doc.id)) this.users.push(doc);
+      };
+    } else {
+      this.load();
+    }
+  }
+
+  get syncError() {
+    return this.sync ? this.sync.errorText : null;
+  }
+
+  // True once the database holds every change so far (at once for files); gives up after `ms` and never throws.
+  settledWithin(ms) {
+    return this.sync ? this.sync.settledWithin(ms) : Promise.resolve(true);
   }
 
   load() {
@@ -96,6 +115,10 @@ class UserStore {
   }
 
   save() {
+    if (this.sync) {
+      this.sync.schedule();
+      return;
+    }
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ version: 1, users: this.users }, null, 2), { mode: 0o600 });
@@ -117,8 +140,9 @@ class UserStore {
 
 // The key that signs the cookies. SESSION_SECRET if it is set; otherwise a random key kept next to the bookings (so
 // sign-ins survive a restart wherever the bookings do); otherwise a random key for as long as the server runs.
-function loadSecret(config) {
+function loadSecret(config, kept = null) {
   if (config.auth.sessionSecret) return Buffer.from(config.auth.sessionSecret, 'utf8');
+  if (kept) return kept; // the key kept in the database
   const file = path.join(config.dataDir, 'session.key');
   try {
     const existing = fs.readFileSync(file);
@@ -146,9 +170,10 @@ function readCookie(req, name) {
   return null;
 }
 
-function createAuth({ config, now = Date.now, log = console }) {
-  const users = new UserStore(config.dataDir);
-  const secret = loadSecret(config);
+// `storage` (from storage.js) is given when the accounts live in the database; without it they are kept in users.json.
+function createAuth({ config, now = Date.now, log = console, storage = null }) {
+  const users = storage && storage.users ? storage.users : new UserStore(config.dataDir);
+  const secret = loadSecret(config, storage && storage.sessionKey);
   const sign = (text) => crypto.createHmac('sha256', secret).update(text).digest('base64url');
   // Changing OPERATOR_PASSWORD signs every admin out: the cookie carries a fingerprint of the password it was made with.
   const passwordMark = () => crypto.createHmac('sha256', secret).update('pw|' + config.operator.password).digest('base64url').slice(0, 10);
@@ -230,6 +255,7 @@ function createAuth({ config, now = Date.now, log = console }) {
     } catch (err) {
       log.error(`COULD NOT SAVE customer accounts: ${err.message}. The account works until the server restarts.`);
     }
+    await users.settledWithin(5000); // with a database: let it take the new account first (it is retried if it cannot)
     return start(req, res, { role: 'customer', id: user.id, name: user.name, email: user.email });
   }
 

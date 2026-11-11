@@ -206,10 +206,13 @@ function connectionReport(req, config, store, chat) {
     secure: req.secure,
     forwardedProto: req.headers['x-forwarded-proto'] ? clip(req.headers['x-forwarded-proto']) : null,
     storage: {
-      folder: config.dataDir,
+      kind: config.database.enabled ? 'database' : 'files',
+      database: config.database.enabled ? config.database.host : null,
+      databaseError: store.syncError,
+      folder: config.database.enabled ? null : config.dataDir,
       onRender: config.onRender,
-      onDisk: config.dataOnRenderDisk,
-      diskPath: config.onRender ? RENDER_DISK_PATH : null,
+      onDisk: config.database.enabled ? null : config.dataOnRenderDisk,
+      diskPath: config.onRender && !config.database.enabled ? RENDER_DISK_PATH : null,
       bookings: store.bookings.length,
     },
     chat: chat.status(),
@@ -219,10 +222,13 @@ function connectionReport(req, config, store, chat) {
 }
 
 // `chat` lets the tests swap in a pretend Anthropic (fetchImpl, apiUrl, timeoutMs). The real site never passes it.
-function createApp({ config, store, razorpay = null, now = Date.now, log = console, chat: chatOptions = {} }) {
+// `storage` (from storage.js) carries the customer accounts and the sign-in key when they live in the database. Without it
+// they are kept in files next to the bookings, which is what the tests and a computer at home use.
+function createApp({ config, store, razorpay = null, now = Date.now, log = console, chat: chatOptions = {}, storage = null }) {
   const bookings = createBookingService({ config, store, razorpay, now, log });
+  if (storage && storage.kind === 'database') bookings.adopt = () => storage.adopt();
   const chat = createChat({ config, bookings, now, log, ...chatOptions });
-  const auth = createAuth({ config, now, log });
+  const auth = createAuth({ config, now, log, storage });
   const renderPage = createPageRenderer(config, now);
   const app = express();
   app.locals.bookings = bookings;

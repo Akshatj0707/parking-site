@@ -152,7 +152,10 @@ test('the setup check says where bookings are saved and whether that is on the R
   // makeSite keeps the real bookings in a temporary folder, so naming a folder on the disk here writes nothing there.
   const onDisk = await site(t, { env: { RENDER: 'true', DATA_DIR: '/var/data/live' } });
   const a = (await onDisk.get(CHECK, { headers: good })).json;
-  assert.deepEqual({ ...a.storage, bookings: undefined }, { folder: path.resolve('/var/data/live'), onRender: true, onDisk: true, diskPath: '/var/data', bookings: undefined });
+  assert.deepEqual(
+    { ...a.storage, bookings: undefined },
+    { kind: 'files', database: null, databaseError: null, folder: path.resolve('/var/data/live'), onRender: true, onDisk: true, diskPath: '/var/data', bookings: undefined }
+  );
   assert.equal(a.storage.bookings, 0);
 
   const off = await site(t, { env: { RENDER: 'true' } }); // makeSite's temporary folder is not on the disk
