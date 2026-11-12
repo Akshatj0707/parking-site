@@ -27,12 +27,14 @@ const PAGES = {
   '/business': 'business.html',
   '/bookings': 'bookings.html',
   '/customers': 'customers.html',
+  '/officials': 'officials.html',
   '/login': 'auth.html',
   '/signup': 'auth.html',
   '/account': 'auth.html',
 };
-// Pages that only the operator (admin) may open.
-const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers']);
+// Pages for the staff: the owner (admin) and government officials. The Officials page is for the owner alone.
+const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers', '/officials']);
+const OWNER_PAGES = { '/officials': 'accounts:manage' };
 // The policy pages. Razorpay looks for these before it switches a shop to live payments. The words of each page are in
 // public/legal/<name>.html; public/legal.html wraps them in the site's header and footer. The footer links come from
 // this list, in this order.
@@ -396,7 +398,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     signInLimit,
     wrap(async (req, res) => {
       const session = await auth.login(req.body, req, res);
-      res.json({ user: auth.publicUser(session), next: session.role === 'admin' ? '/dashboard' : '/account' });
+      res.json({ user: auth.publicUser(session), next: session.role === 'admin' || session.role === 'official' ? '/dashboard' : '/account' });
     })
   );
 
@@ -409,24 +411,25 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   app.get('/api/account/bookings', (req, res) => {
     const session = auth.current(req);
     if (!session) throw new HttpError(401, 'login_required', 'Please sign in to see your bookings.');
-    if (session.role !== 'customer' || !roles.can(session.role, 'booking:view-own')) throw new HttpError(403, 'forbidden', 'Only customer accounts have bookings of their own. The admin sees every booking under Bookings.');
+    if (session.role !== 'customer' || !roles.can(session.role, 'booking:view-own')) throw new HttpError(403, 'forbidden', 'Only customer accounts have bookings of their own. The owner and government officials see every booking under Bookings.');
     res.json({ bookings: bookings.forCustomer(session.id) });
   });
 
   // ---- Operator area: protected by a user name and password ---------------------------------------
   const wrongPasswords = new HitCounter(60 * 1000, now);
-  // Only the ADMIN gets through: someone who signed in at /login with the operator user name and password (a cookie), or a
-  // script that sends the operator password with HTTP Basic. A signed-in customer is refused with 403.
-  const operatorOnlyPage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operators only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Operators only</h1><p>You are signed in as a customer, and this page is only for the lot operator.</p><p><a href="/account">My bookings</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`;
+  // Only staff get through: the ADMIN (signed in at /login with the operator user name and password, or a script that sends
+  // the operator password with HTTP Basic) and government OFFICIALS (signed in at /login with their own email). A signed-in
+  // customer is refused with 403.
+  const operatorOnlyPage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Staff only</h1><p>You are signed in as a customer, and this page is only for the parking owner and government officials.</p><p><a href="/account">My bookings</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`;
   function operatorGate(req, res, next) {
     const { user, password } = config.operator;
     res.set('Cache-Control', 'no-store');
     const session = auth.current(req);
-    const pass = () => {
-      req.actor = { role: 'admin' };
+    const pass = (role = 'admin') => {
+      req.actor = { role };
       return next();
     };
-    if (session && session.role === 'admin') return pass();
+    if (session && (session.role === 'admin' || session.role === 'official')) return pass(session.role);
     if (!password) {
       if (config.production) {
         return res.status(503).type('text/plain').send('The operator dashboard is switched off until OPERATOR_PASSWORD is set in the server settings.');
@@ -455,7 +458,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     const wantsJson = !wantsHtml && /\bapplication\/json\b/i.test(accept);
     if (session) {
       if (wantsHtml) return res.status(403).type('html').send(operatorOnlyPage);
-      return res.status(403).json({ error: 'forbidden', message: 'This area is only for the lot operator. You are signed in as a customer.' });
+      return res.status(403).json({ error: 'forbidden', message: 'This area is only for the parking owner and government officials. You are signed in as a customer.' });
     }
     // A browser opening a page is sent to the sign-in page; the pages' own requests get a plain "sign in" answer (no
     // browser password box); scripts such as curl get the classic HTTP Basic challenge.
@@ -465,13 +468,20 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     return res.status(401).type('text/plain').send('Sign in with the operator user name and password.');
   }
 
-  // Role-based access control: operatorGate proves WHO is asking (and only lets the admin through); needs() then checks that
+  // Role-based access control: operatorGate proves WHO is asking (and only lets staff through); needs() then checks that
   // the role really holds the permission the route needs (see src/roles.js). A role that lacks it gets 403 and is told so.
   const needs = (permission) => (req, res, next) => {
     if (req.actor && roles.can(req.actor.role, permission)) return next();
     return res.status(403).json({ error: 'forbidden', message: 'Your role does not have permission for this: ' + (roles.PERMISSIONS[permission] || permission) + '.' });
   };
+  // A page only the owner may open: an official who types its address is told so (the page would load no data anyway).
+  const ownerOnlyPage = (permission) => (req, res, next) => {
+    if (req.actor && roles.can(req.actor.role, permission)) return next();
+    return res.status(403).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owner only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Owner only</h1><p>This page is only for the parking owner.</p><p><a href="/dashboard">Dashboard</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`);
+  };
   const userById = (id) => auth.users.byId(id);
+  // The customer numbers and lists count customers only: an official's login is not a customer.
+  const customerAccounts = () => auth.users.users.filter((u) => u.role !== 'official');
 
   app.get('/api/dashboard', operatorGate, needs('bookings:view-all'), (req, res) => {
     res.json({ ...bookings.dashboard(), payments: bookings.paymentStatus(), operatorProtected: Boolean(config.operator.password) });
@@ -523,7 +533,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   });
 
   // Sample bookings so the analytics can be shown before any real customer has booked. Test mode only (see addSampleData).
-  app.post('/api/dashboard/sample-data', operatorGate, needs('analytics:view'), ownPagesOnly, operatorLimit, (req, res) => {
+  app.post('/api/dashboard/sample-data', operatorGate, needs('samples:manage'), ownPagesOnly, operatorLimit, (req, res) => {
     const action = req.body && req.body.action;
     if (action === 'add') return res.json({ ok: true, ...bookings.addSampleData() });
     if (action === 'remove') return res.json({ ok: true, ...bookings.removeSampleData() });
@@ -532,7 +542,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
 
   // The owner's numbers: money (today, this week, this month, all time), how full the lot is, customers, weekdays, months.
   app.get('/api/dashboard/overview', operatorGate, needs('analytics:view'), operatorLimit, (req, res) => {
-    res.json(bookings.ownerOverview(auth.users.users));
+    res.json(bookings.ownerOverview(customerAccounts()));
   });
 
   // Every booking, with filters, search and pages; and the same list as a spreadsheet file.
@@ -549,13 +559,51 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
 
   // Every customer account: name, e-mail, what they booked and spent. Never a password.
   app.get('/api/dashboard/customers', operatorGate, needs('customers:view'), operatorLimit, (req, res) => {
-    res.json(bookings.customerList(auth.users.users, req.query));
+    res.json(bookings.customerList(customerAccounts(), req.query));
   });
 
-  // Who may do what: the two roles and their permissions.
-  app.get('/api/dashboard/roles', operatorGate, needs('system:view'), operatorLimit, (req, res) => {
+  // Who may do what: the roles and their permissions.
+  app.get('/api/dashboard/roles', operatorGate, needs('bookings:view-all'), operatorLimit, (req, res) => {
     res.json(roles.matrix());
   });
+
+  // The logins of government officials. Only the owner (accounts:manage) may see, create, change or remove them.
+  app.get('/api/dashboard/officials', operatorGate, needs('accounts:manage'), operatorLimit, (req, res) => {
+    res.json({ officials: auth.officials() });
+  });
+
+  app.post(
+    '/api/dashboard/officials',
+    operatorGate,
+    needs('accounts:manage'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      res.status(201).json({ official: await auth.addOfficial(req.body) });
+    })
+  );
+
+  app.post(
+    '/api/dashboard/officials/:id/password',
+    operatorGate,
+    needs('accounts:manage'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      res.json({ official: await auth.setOfficialPassword(req.params.id, req.body) });
+    })
+  );
+
+  app.post(
+    '/api/dashboard/officials/:id/remove',
+    operatorGate,
+    needs('accounts:manage'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      res.json({ ok: true, official: await auth.removeOfficial(req.params.id) });
+    })
+  );
 
   // Cancel a paid booking and refund it in full (or try a failed refund again).
   app.post(
@@ -579,6 +627,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   // ---- Pages and files ---------------------------------------------------------------------------
   for (const [route, file] of Object.entries(PAGES)) {
     const gate = ADMIN_PAGES.has(route) ? [operatorGate] : [];
+    if (OWNER_PAGES[route]) gate.push(ownerOnlyPage(OWNER_PAGES[route]));
     app.get(route, ...gate, (req, res) => {
       res.set('Cache-Control', 'no-cache');
       res.type('html').send(renderPage(file));

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Officials · {{SITE_NAME}}</title>
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/analytics.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to manage the officials.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}<span class="brand-sub">Admin</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/business">Business</a>
+      <a href="/bookings">Bookings</a>
+      <a href="/customers">Customers</a>
+      <a href="/analytics">Analytics</a>
+      <a href="/officials" aria-current="page">Officials</a>
+      <a class="nav-cta" href="/book">Booking page</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad">
+  <div class="dash-head rise">
+    <div class="stack g8">
+      <p class="eyebrow">Government officials</p>
+      <h1 class="h1">Logins for government officials</h1>
+    </div>
+    <p class="updated" id="updated" role="status">Loading…</p>
+  </div>
+
+  <div class="stack g12" id="notice" aria-live="polite"></div>
+
+  <section class="panel" aria-labelledby="who-title">
+    <h2 id="who-title">What an official can do</h2>
+    <p class="muted">A government official signs in on the normal <a href="/login">Sign in</a> page with the email and password you create here. They see all the data: every booking, every customer, all payments and numbers, and they can download the spreadsheet. They cannot cancel or refund a booking, change any setting, or create other logins. Only you can do that.</p>
+    <p class="muted">Nobody can create an official login by signing up. Customers sign up by themselves and are always customers.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="add-title">
+    <h2 id="add-title">Create a login</h2>
+    <form class="filters" id="add-form" novalidate autocomplete="off">
+      <div class="field">
+        <label class="label" for="o-name">Official's name</label>
+        <input class="input" id="o-name" name="name" type="text" maxlength="60" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label class="label" for="o-office">Office or department (optional)</label>
+        <input class="input" id="o-office" name="office" type="text" maxlength="80" autocomplete="off" placeholder="For example Municipal Corporation">
+      </div>
+      <div class="field">
+        <label class="label" for="o-email">Email (this is the login id)</label>
+        <input class="input" id="o-email" name="email" type="email" maxlength="120" autocapitalize="none" spellcheck="false" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label class="label" for="o-password">Password</label>
+        <input class="input" id="o-password" name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" required>
+        <p class="help">At least 8 characters. Tell the official their password in person or by phone, not by a message you cannot take back.</p>
+      </div>
+      <div class="filters-actions">
+        <button class="btn btn-navy" type="submit" id="add-go">Create login</button>
+      </div>
+    </form>
+    <div id="add-message" aria-live="polite"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="list-title">
+    <div class="panel-head"><h2 id="list-title">Officials with a login</h2><p class="totals" id="totals" role="status"></p></div>
+    <div class="table-wrap" id="list"><p class="muted">Loading…</p></div>
+    <p class="fine">Passwords are never shown: nobody, including you, can read them. If an official forgets theirs, set a new one. Removing a login signs that official out at once.</p>
+  </section>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Admin: Officials</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/officials.js"></script>
+</body>
+</html>

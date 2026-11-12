@@ -10,6 +10,11 @@
   const $ = (id) => document.getElementById(id);
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
+  let canSample = false; // only the owner may add or remove sample bookings
+  const ready = window.Bayfind.can('samples:manage').then((yes) => {
+    canSample = yes;
+  });
+
   const state = { days: 14, date: '', metric: 'parked', vehicle: 'total', scope: 'average', data: null };
 
   // ---- Small things -------------------------------------------------------------------------------------------
@@ -201,7 +206,7 @@
   function drawSample(d) {
     const panel = $('sample-panel');
     const testMode = d.paymentMode === 'demo';
-    panel.hidden = !(testMode || d.sample.present);
+    panel.hidden = !canSample || !(testMode || d.sample.present);
     if (panel.hidden) return;
     $('sample-text').textContent = d.sample.present
       ? `${plural(d.sample.count, 'sample booking')} are included in the numbers above. They are made-up bookings for showing this page, not real customers, and they are all in the past so they never block a bay.`
@@ -260,6 +265,7 @@
   }
 
   async function load() {
+    await ready;
     const query = new URLSearchParams({ days: String(state.days) });
     if (state.date) query.set('date', state.date);
     try {

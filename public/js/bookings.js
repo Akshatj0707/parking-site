@@ -14,6 +14,10 @@
   let page = 1;
   let off = 330;
   let seq = 0;
+  let canRefund = false; // an official sees every booking but cannot cancel or refund (the server refuses it as well)
+  const ready = B.can('bookings:cancel-refund').then((yes) => {
+    canRefund = yes;
+  });
 
   const when = (ms) => (ms ? `${S.formatDate(ms, off)}, ${S.formatTime(ms, off)}` : '–');
   const shownId = (id) => (id ? String(id).replace(/^demo_/, 'test_') : '–');
@@ -60,7 +64,8 @@
 
   function table(rows) {
     if (!rows.length) return h('p', { class: 'muted' }, 'No bookings match these filters.');
-    const heads = ['Reference', 'Paid', 'Customer', 'Vehicle', 'Bay', 'Parking time', 'Amount', 'Status', 'Razorpay payment', 'Action'];
+    const heads = ['Reference', 'Paid', 'Customer', 'Vehicle', 'Bay', 'Parking time', 'Amount', 'Status', 'Razorpay payment'];
+    if (canRefund) heads.push('Action');
     return h(
       'table',
       { class: 'table table-wide' },
@@ -83,7 +88,7 @@
             h('td', { class: 'num' }, rupees(r.amount)),
             h('td', null, h('span', { class: 'badge ' + cls }, label)),
             h('td', null, r.paymentId ? h('span', { class: 'mono wrap-id' }, shownId(r.paymentId)) : '–', r.orderId ? h('span', { class: 'sub wrap-id' }, 'Order ' + r.orderId) : null, r.refundId ? h('span', { class: 'sub wrap-id' }, 'Refund ' + r.refundId) : null),
-            h('td', null, r.canCancel ? h('button', { class: 'btn btn-outline btn-sm', type: 'button', 'aria-label': `${r.status === 'refund_failed' ? 'Retry the refund for' : 'Cancel the booking for'} ${r.plate}`, onclick: () => cancel(r) }, r.status === 'refund_failed' ? 'Retry refund' : 'Cancel and refund') : null)
+            canRefund ? h('td', null, r.canCancel ? h('button', { class: 'btn btn-outline btn-sm', type: 'button', 'aria-label': `${r.status === 'refund_failed' ? 'Retry the refund for' : 'Cancel the booking for'} ${r.plate}`, onclick: () => cancel(r) }, r.status === 'refund_failed' ? 'Retry refund' : 'Cancel and refund') : null) : null
           );
         })
       )
@@ -105,6 +110,7 @@
 
   async function load() {
     const mine = ++seq;
+    await ready;
     const v = readForm();
     const qs = query(v, false);
     $('f-csv').href = '/api/dashboard/export.csv' + (qs ? '?' + qs : '');

@@ -3,10 +3,13 @@
 /*
  * Accounts and roles.
  *
- * There are two roles:
+ * There are three roles:
  *   ADMIN     the lot operator. Signs in with the operator user name and OPERATOR_PASSWORD (there is no admin row in
  *             users.json, so nobody can become an admin by signing up). May use the dashboard, the analytics page,
- *             cancel and refund bookings.
+ *             cancel and refund bookings, and create the logins of government officials.
+ *   OFFICIAL  a government official. The owner creates the login (name, email, password) on the Officials page; there is
+ *             no way to sign up as one. Sees all the data, changes nothing (see roles.js). Kept in users.json (or the
+ *             database) next to the customers, with role "official".
  *   CUSTOMER  anyone who signs up with a name, an email and a password. May book a bay and see their own bookings.
  *             A customer can never open the operator pages.
  *
@@ -25,7 +28,7 @@ const scrypt = promisify(crypto.scrypt);
 
 const COOKIE = 'bf_session';
 const CUSTOMER_SECONDS = 14 * 24 * 3600;
-const ADMIN_SECONDS = 12 * 3600;
+const ADMIN_SECONDS = 12 * 3600; // the owner and government officials are signed out after 12 hours
 const MAX_USERS = 20000;
 const USER_ID = /^usr_[0-9a-f]{12}$/;
 const COMMON_PASSWORDS = new Set(['password', 'password1', 'password123', '12345678', '123456789', '1234567890', 'qwertyui', 'qwerty123', '11111111', 'abcd1234', 'iloveyou', 'admin123', 'letmein1', 'welcome1']);
@@ -56,6 +59,27 @@ async function checkPassword(password, stored) {
   if (!salt.length || want.length !== 32) return false;
   const got = await scrypt(password, salt, 32);
   return crypto.timingSafeEqual(got, want);
+}
+
+function cleanName(value) {
+  const name = String(value === undefined || value === null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!name || name.length > 60 || /[\u0000-\u001f<>]/.test(name)) throw new HttpError(400, 'invalid_name', 'Enter the name (up to 60 characters, no < or >).');
+  return name;
+}
+
+function cleanPassword(value, email) {
+  const password = typeof value === 'string' ? value : '';
+  if (password.length < 8 || password.length > 100 || COMMON_PASSWORDS.has(password.toLowerCase()) || password.toLowerCase() === email) {
+    throw new HttpError(400, 'weak_password', 'Use a password of 8 to 100 characters that is not a very common one.');
+  }
+  return password;
+}
+
+// The office or department of an official, for example "Municipal Corporation, Indore". Optional.
+function cleanOffice(value) {
+  const office = String(value === undefined || value === null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (office.length > 80 || /[\u0000-\u001f<>]/.test(office)) throw new HttpError(400, 'invalid_office', 'The office or department can be up to 80 characters, with no < or >.');
+  return office;
 }
 
 function normalizeEmail(value) {
@@ -136,6 +160,10 @@ class UserStore {
   add(user) {
     this.users.push(user);
   }
+
+  remove(id) {
+    this.users = this.users.filter((u) => u.id !== id);
+  }
 }
 
 // The key that signs the cookies. SESSION_SECRET if it is set; otherwise a random key kept next to the bookings (so
@@ -180,6 +208,9 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   const failures = new HitCounter(15 * 60 * 1000, now);
   let dummy = null; // a hash to check against when the email is unknown, so unknown and known emails take equally long
 
+  // Changing an official's password signs that official out everywhere: the cookie carries a fingerprint of the password.
+  const userMark = (user) => crypto.createHmac('sha256', secret).update('pw|' + user.id + '|' + user.pass).digest('base64url').slice(0, 10);
+
   const publicUser = (s) => (s ? { role: s.role, name: s.name, email: s.email || null, permissions: permissionsOf(s.role) } : null);
 
   function cookieFlags(req, maxAge) {
@@ -187,8 +218,12 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   }
 
   function start(req, res, session) {
-    const seconds = session.role === 'admin' ? ADMIN_SECONDS : CUSTOMER_SECONDS;
-    const payload = Buffer.from(JSON.stringify({ r: session.role, u: session.id || null, e: now() + seconds * 1000, p: session.role === 'admin' ? passwordMark() : null })).toString('base64url');
+    const staff = session.role === 'admin' || session.role === 'official';
+    const seconds = staff ? ADMIN_SECONDS : CUSTOMER_SECONDS;
+    let mark = null;
+    if (session.role === 'admin') mark = passwordMark();
+    else if (session.role === 'official') mark = userMark(users.byId(session.id));
+    const payload = Buffer.from(JSON.stringify({ r: session.role, u: session.id || null, e: now() + seconds * 1000, p: mark })).toString('base64url');
     res.append('Set-Cookie', `${COOKIE}=${payload}.${sign(payload)}; ${cookieFlags(req, seconds)}`);
     req.bfSession = session;
     return session;
@@ -199,7 +234,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     req.bfSession = null;
   }
 
-  // Who is making this request: { role: 'admin' | 'customer', id, name, email } or null.
+  // Who is making this request: { role: 'admin' | 'official' | 'customer', id, name, email } or null.
   function current(req) {
     if (req.bfSession !== undefined) return req.bfSession;
     req.bfSession = null;
@@ -221,10 +256,13 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     if (data.r === 'admin') {
       if (!config.operator.password || data.p !== passwordMark()) return null;
       req.bfSession = { role: 'admin', id: null, name: config.operator.user, email: null };
-    } else if (data.r === 'customer') {
+    } else if (data.r === 'customer' || data.r === 'official') {
       const user = typeof data.u === 'string' ? users.byId(data.u) : null;
-      if (!user) return null;
-      req.bfSession = { role: 'customer', id: user.id, name: user.name, email: user.email };
+      if (!user) return null; // an official whose login was removed is signed out at once
+      const role = user.role === 'official' ? 'official' : 'customer';
+      if (role !== data.r) return null;
+      if (role === 'official' && data.p !== userMark(user)) return null;
+      req.bfSession = { role, id: user.id, name: user.name, email: user.email };
     }
     return req.bfSession;
   }
@@ -236,14 +274,10 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
 
   async function signup(body, req, res) {
     const b = body && typeof body === 'object' ? body : {};
-    const name = String(b.name === undefined || b.name === null ? '' : b.name).replace(/\s+/g, ' ').trim();
-    if (!name || name.length > 60 || /[\u0000-\u001f<>]/.test(name)) throw new HttpError(400, 'invalid_name', 'Enter your name (up to 60 characters, no < or >).');
+    const name = cleanName(b.name);
     const email = normalizeEmail(b.email);
     if (!email) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
-    const password = typeof b.password === 'string' ? b.password : '';
-    if (password.length < 8 || password.length > 100 || COMMON_PASSWORDS.has(password.toLowerCase()) || password.toLowerCase() === email) {
-      throw new HttpError(400, 'weak_password', 'Use a password of 8 to 100 characters that is not a very common one.');
-    }
+    const password = cleanPassword(b.password, email);
     if (users.users.length >= MAX_USERS) throw new HttpError(503, 'accounts_full', 'New accounts cannot be created right now.');
     if (users.byEmail(email)) throw new HttpError(409, 'email_taken', 'An account with that email already exists. Sign in instead.');
     const pass = await hashPassword(password);
@@ -280,7 +314,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
       const user = users.byEmail(identifier);
       if (!user && !dummy) dummy = hashPassword('a password nobody has');
       const ok = await checkPassword(password, user ? user.pass : await dummy);
-      if (user && ok) session = { role: 'customer', id: user.id, name: user.name, email: user.email };
+      if (user && ok) session = { role: user.role === 'official' ? 'official' : 'customer', id: user.id, name: user.name, email: user.email };
     }
     if (!session) {
       failures.hit(ipKey);
@@ -288,6 +322,61 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
       throw new HttpError(401, 'bad_login', 'That email or password is not right.');
     }
     return start(req, res, session);
+  }
+
+  // ---- Government officials: created, changed and removed by the owner only (the routes check accounts:manage) -------
+  const officialRow = (u) => ({ id: u.id, name: u.name, email: u.email, office: u.office || '', createdAt: u.createdAt });
+  const officialById = (id) => {
+    const user = typeof id === 'string' && USER_ID.test(id) ? users.byId(id) : null;
+    if (!user || user.role !== 'official') throw new HttpError(404, 'not_found', 'There is no official login with that id.');
+    return user;
+  };
+  async function keep() {
+    try {
+      users.save();
+    } catch (err) {
+      log.error(`COULD NOT SAVE the accounts: ${err.message}. The change works until the server restarts.`);
+    }
+    await users.settledWithin(5000);
+  }
+
+  function officials() {
+    return users.users.filter((u) => u.role === 'official').map(officialRow).sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async function addOfficial(body) {
+    const b = body && typeof body === 'object' ? body : {};
+    const name = cleanName(b.name);
+    const office = cleanOffice(b.office);
+    const email = normalizeEmail(b.email);
+    if (!email) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
+    const password = cleanPassword(b.password, email);
+    const taken = () => users.byEmail(email) || (config.operator.password && email === config.operator.user.toLowerCase());
+    if (users.users.length >= MAX_USERS) throw new HttpError(503, 'accounts_full', 'New accounts cannot be created right now.');
+    if (taken()) throw new HttpError(409, 'email_taken', 'An account with that email already exists. An official needs an email address of their own.');
+    const pass = await hashPassword(password);
+    if (taken()) throw new HttpError(409, 'email_taken', 'An account with that email already exists. An official needs an email address of their own.');
+    const user = { id: 'usr_' + crypto.randomBytes(6).toString('hex'), role: 'official', name, email, office, pass, createdAt: now() };
+    users.add(user);
+    await keep();
+    log.info(`The owner created a government official login for ${email}.`);
+    return officialRow(user);
+  }
+
+  async function setOfficialPassword(id, body) {
+    const user = officialById(id);
+    user.pass = await hashPassword(cleanPassword(body && body.password, user.email));
+    await keep();
+    log.info(`The owner changed the password of the government official ${user.email}. That official was signed out.`);
+    return officialRow(user);
+  }
+
+  async function removeOfficial(id) {
+    const user = officialById(id);
+    users.remove(user.id);
+    await keep();
+    log.info(`The owner removed the government official login of ${user.email}.`);
+    return officialRow(user);
   }
 
   function seedTestCustomer() {
@@ -302,7 +391,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
 
   if (config.auth.seedTestCustomer) seedTestCustomer();
 
-  return { users, current, publicUser, signup, login, logout: end, TEST_CUSTOMER, USER_ID };
+  return { users, current, publicUser, signup, login, logout: end, officials, addOfficial, setOfficialPassword, removeOfficial, TEST_CUSTOMER, USER_ID };
 }
 
 module.exports = { createAuth, UserStore, hashPassword, checkPassword, normalizeEmail, TEST_CUSTOMER, USER_ID, COOKIE };

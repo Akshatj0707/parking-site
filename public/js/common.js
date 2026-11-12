@@ -221,7 +221,7 @@
 
   // ---- Who is signed in -----------------------------------------------------------------------------------------
   let sessionPromise = null;
-  // { role: 'admin' | 'customer', name, email } or null
+  // { role: 'admin' | 'official' | 'customer', name, email, permissions } or null
   function session() {
     if (!sessionPromise) sessionPromise = api('/api/me').then((r) => r.user, () => null);
     return sessionPromise;
@@ -229,6 +229,11 @@
   function refreshSession() {
     sessionPromise = null;
     return session();
+  }
+  // True when the signed-in person's role holds the permission (the server checks again on every request).
+  async function can(permission) {
+    const user = await session();
+    return Boolean(user && Array.isArray(user.permissions) && user.permissions.includes(permission));
   }
   async function signOut() {
     try {
@@ -252,16 +257,20 @@
     const link = (href, text) => h('a', { class: 'nav-auth', href, 'data-auth': '' }, text);
     const has = (href) => nav.querySelector('a[href="' + href + '"]');
     if (!user) return add(link('/login', 'Sign in'));
-    if (user.role === 'admin') {
+    if (user.role === 'admin' || user.role === 'official') {
       if (!has('/dashboard')) add(link('/dashboard', 'Dashboard'));
       if (!has('/business')) add(link('/business', 'Business'));
+      // Only the owner manages the officials' logins; the officials' own pages are labelled for them.
+      if (user.role === 'admin' && has('/analytics') && !has('/officials')) nav.insertBefore(h('a', { class: 'nav-auth', href: '/officials', 'data-auth': '' }, 'Officials'), has('/analytics').nextSibling);
+      const sub = document.querySelector('header .brand-sub');
+      if (sub && user.role === 'official') sub.textContent = 'Government';
     } else if (!has('/account')) {
       add(link('/account', 'My bookings'));
     }
     return add(h('button', { class: 'nav-auth nav-signout', type: 'button', 'data-auth': '', onclick: signOut }, 'Sign out'));
   }
 
-  window.Bayfind = { S, ApiError, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, signOut };
+  window.Bayfind = { S, ApiError, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, can, signOut };
 
   // Every page shows the payment-mode strip and who is signed in.
   getConfig().then(applyModeBanner, () => {});
