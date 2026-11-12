@@ -14,7 +14,7 @@ It is set up for one lot with **200 four-wheeler bays** and **250 two-wheeler ba
 - **Book a bay** (`/book`): choose 4-wheeler or 2-wheeler, type the vehicle number, pick a day, a start time and 1 to 4 hours, pick a bay (or let the site choose one) and pay.
 - **Razorpay checkout**: the real Razorpay payment popup, in free test mode (no real money) or live mode. There is no pretend payment on a live site: without Razorpay keys, booking is switched off.
 - **Find my booking** (`/lookup`): type a vehicle number to see its current and upcoming bookings with the bay and the time.
-- **Admin pages** (sign in at `/login` as the admin): **Dashboard** (`/dashboard`: free and used bays, today's payments, a bay map, anything that needs attention), **Business** (`/business`: money collected today, this week, this month and all time, how full the lot is, repeat customers, best weekdays and months, top customers, the Razorpay connection, who can do what), **Bookings** (`/bookings`: every booking with search, filters, a spreadsheet download and cancel-and-refund), **Customers** (`/customers`: every account with what each has spent) and **Analytics** (`/analytics`: money per day and the busiest hours).
+- **Admin pages** (sign in at `/login` as the admin; government officials see the same pages, read only, with their own login from the owner's **Officials** page, `/officials`): **Dashboard** (`/dashboard`: free and used bays, today's payments, a bay map, anything that needs attention), **Business** (`/business`: money collected today, this week, this month and all time, how full the lot is, repeat customers, best weekdays and months, top customers, the Razorpay connection, who can do what), **Bookings** (`/bookings`: every booking with search, filters, a spreadsheet download and cancel-and-refund), **Customers** (`/customers`: every account with what each has spent) and **Analytics** (`/analytics`: money per day and the busiest hours).
 - **Cancel and refund** (on the dashboard): type a vehicle number, confirm, and the bay is freed and the full amount goes back to the driver through Razorpay.
 - **Policy pages** (`/pricing`, `/terms`, `/privacy`, `/refunds`, `/shipping`, `/contact`): plain-language pages that Razorpay checks for before it allows live payments. They fill in your prices, hold time and business details by themselves. Read them and adjust them to how you really run the lot (sections 7 and 8).
 - **Chat assistant** (the yellow **Ask us** button in the corner of the public pages): drivers ask about prices, free bays, how to book, how to find a booking, refunds and how to reach the lot. It works at once with built-in answers made from your own settings and the live bay count. Add an Anthropic key and an AI writes the answers instead (section 3, “The chat assistant”). It cannot book, cancel or refund anything, and it never sees a booking.
@@ -117,14 +117,15 @@ Open `/dashboard`. It asks for a user name (`operator`, or whatever you set in `
 
 “In use” on the dashboard means “has a paid booking right now”. No sensors or cameras are connected.
 
-### Accounts and roles (Admin and Customer)
+### Accounts and roles (Admin, Government official and Customer)
 
-The site has two roles.
+The site has three roles.
 
 | Role | Who | What they can do |
 | --- | --- | --- |
 | **Admin** (the owner) | The lot operator. Signs in at `/login` with the user name `operator` (or `OPERATOR_USER`) and `OPERATOR_PASSWORD`. Nobody can become an admin by signing up. | **Everything**: see every booking and every customer, search and download bookings as a spreadsheet, see the money collected and the busiest times, cancel and refund bookings, see the Razorpay connection and run the Setup check. |
-| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens an admin page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Operators only" (403), and the admin's data requests answer 403 too. |
+| **Government official** | A login the owner creates on the **Officials** page (`/officials`: name, office, email, password; the owner can also set a new password or remove a login, which signs that official out at once). Officials sign in at `/login` with their email. Nobody can become an official by signing up. | **All the data, read only**: every booking and every customer, all payments and numbers, the spreadsheet download. They cannot cancel or refund, run the Setup check, add sample data or create logins (403). To let officials refund as well, add `bookings:cancel-refund` to the `official` list in `src/roles.js`. |
+| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens a staff page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Staff only" (403), and the staff data requests answer 403 too. |
 
 By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off` lets anyone book without an account). Every booking made while signed in belongs to that customer, and the browser cannot choose whose booking it is. Passwords are kept only as scrypt hashes in `users.json` next to `bookings.json`; the sign-in is a signed, HttpOnly, SameSite cookie (`SESSION_SECRET` is optional: without it a random key is kept in the data folder). Wrong passwords are limited per connection and per account. Scripts can still use the operator password with HTTP Basic.
 

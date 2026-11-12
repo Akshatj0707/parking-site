@@ -14,7 +14,8 @@
     const next = new URLSearchParams(location.search).get('next');
     return next && /^\/(?!\/)[A-Za-z0-9\-._~/?=&%]*$/.test(next) ? next : null;
   }
-  const operatorPath = (path) => /^\/(dashboard|analytics|business|bookings|customers)(\/|\?|$)/.test(path);
+  const operatorPath = (path) => /^\/(dashboard|analytics|business|bookings|customers|officials)(\/|\?|$)/.test(path);
+  const isStaff = (user) => user.role === 'admin' || user.role === 'official';
 
   function field(id, label, attrs, help) {
     const input = h('input', Object.assign({ class: 'input', id, name: id, required: true }, attrs));
@@ -36,7 +37,7 @@
   async function loginView(cfg, user) {
     document.title = 'Sign in · ' + cfg.siteName;
     if (user) return alreadyIn(user);
-    const id = field('identifier', 'Email, or the operator user name', { type: 'text', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: '120' });
+    const id = field('identifier', 'Email, or the owner user name', { type: 'text', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: '120' });
     const pw = field('password', 'Password', { type: 'password', autocomplete: 'current-password', maxlength: '100' });
     const message = h('div', { 'aria-live': 'polite' });
     const go = h('button', { class: 'btn btn-navy btn-tall', type: 'submit' }, 'Sign in');
@@ -50,15 +51,14 @@
         const done = await post('/api/auth/login', { identifier: id.input.value, password: pw.input.value });
         await refreshSession();
         const wanted = safeNext();
-        const isAdmin = done.user.role === 'admin';
-        // an admin may go to an operator page; a customer never is sent to one
-        location.assign(wanted && (isAdmin || !operatorPath(wanted)) ? wanted : done.next);
+        // staff (the owner, a government official) may go to a staff page; a customer never is sent to one
+        location.assign(wanted && (isStaff(done.user) || !operatorPath(wanted)) ? wanted : done.next);
       } catch (err) {
         go.disabled = false;
         show(message, err.message);
       }
     });
-    const kids = formShell({ eyebrow: 'Sign in', title: 'Welcome back', lead: 'Customers sign in with their email. The lot operator signs in with the operator user name.' });
+    const kids = formShell({ eyebrow: 'Sign in', title: 'Welcome back', lead: 'Customers and government officials sign in with their email. The parking owner signs in with the owner user name.' });
     kids.push(form);
     const test = cfg.auth && cfg.auth.testCustomer;
     if (test) {
@@ -108,12 +108,17 @@
   }
 
   function alreadyIn(user) {
-    const isAdmin = user.role === 'admin';
+    const staff = isStaff(user);
     root.replaceChildren(
-      ...formShell({ eyebrow: 'Signed in', title: 'You are signed in', lead: isAdmin ? `Signed in as the operator (${user.name}).` : `Signed in as ${user.name}.` }),
+      ...formShell({
+        eyebrow: 'Signed in',
+        title: 'You are signed in',
+        lead: user.role === 'admin' ? `Signed in as the parking owner (${user.name}).` : user.role === 'official' ? `Signed in as a government official (${user.name}).` : `Signed in as ${user.name}.`,
+      }),
       h('div', { class: 'row' },
-        isAdmin ? h('a', { class: 'btn btn-navy', href: '/dashboard' }, 'Open the dashboard') : h('a', { class: 'btn btn-navy', href: '/account' }, 'My bookings'),
-        isAdmin ? h('a', { class: 'btn btn-outline', href: '/business' }, 'Business overview') : h('a', { class: 'btn btn-outline', href: '/book' }, 'Book a bay'))
+        staff ? h('a', { class: 'btn btn-navy', href: '/dashboard' }, 'Open the dashboard') : h('a', { class: 'btn btn-navy', href: '/account' }, 'My bookings'),
+        staff ? h('a', { class: 'btn btn-outline', href: '/business' }, 'Business overview') : h('a', { class: 'btn btn-outline', href: '/book' }, 'Book a bay'),
+        staff ? h('button', { class: 'btn btn-outline', type: 'button', onclick: signOut }, 'Sign out') : null)
     );
   }
 
@@ -132,7 +137,7 @@
   async function accountView(cfg, user) {
     document.title = 'My bookings · ' + cfg.siteName;
     if (!user) return location.replace('/login?next=' + encodeURIComponent('/account'));
-    if (user.role === 'admin') return alreadyIn(user);
+    if (isStaff(user)) return alreadyIn(user);
     const list = h('ul', { class: 'my-bookings plain-list' }, h('li', { class: 'muted' }, 'Loading your bookings…'));
     const logout = h('button', { class: 'btn btn-outline', type: 'button', onclick: signOut }, 'Sign out');
     root.replaceChildren(

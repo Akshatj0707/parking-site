@@ -139,7 +139,7 @@ test('a customer cannot open the operator pages or call the operator API (403), 
   for (const page of ['/dashboard', '/analytics']) {
     const r = await site.get(page, withCookie(cookie, BROWSER_PAGE));
     assert.equal(r.status, 403, page);
-    assert.match(r.text, /Operators only/);
+    assert.match(r.text, /Staff only/);
   }
 
   // a visitor who is not signed in: a browser is sent to the sign-in page, the page's own requests get a plain answer

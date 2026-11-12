@@ -1,6 +1,6 @@
 'use strict';
 
-// The two roles (Admin and Customer) and the owner's pages: every booking, every customer, the business numbers.
+// The three roles (Admin, Government official and Customer) and the owner's pages: every booking, every customer, the business numbers.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -51,15 +51,15 @@ async function bookPaid(s, cookie, body, paymentId) {
 
 // ===== The permission table ====================================================================================
 
-test('there are exactly two roles, and the permission table is the single source of truth', () => {
-  assert.deepEqual(Object.keys(roles.ROLES).sort(), ['admin', 'customer']);
+test('there are exactly three roles, and the permission table is the single source of truth', () => {
+  assert.deepEqual(Object.keys(roles.ROLES).sort(), ['admin', 'customer', 'official']);
   // a customer can book and see their own bookings, and nothing else
   assert.deepEqual(roles.permissionsOf('customer').sort(), ['booking:create', 'booking:view-own']);
   for (const p of Object.keys(roles.PERMISSIONS).filter((x) => !['booking:create', 'booking:view-own'].includes(x))) {
     assert.equal(roles.can('customer', p), false, `a customer must not have ${p}`);
   }
   // the admin holds every owner permission
-  for (const p of ['bookings:view-all', 'bookings:cancel-refund', 'bookings:export', 'customers:view', 'analytics:view', 'payments:view', 'system:view']) {
+  for (const p of Object.keys(roles.PERMISSIONS).filter((x) => x !== 'booking:view-own')) {
     assert.equal(roles.can('admin', p), true, `the admin must have ${p}`);
   }
   // unknown roles and permissions are refused, including prototype tricks
@@ -67,8 +67,9 @@ test('there are exactly two roles, and the permission table is the single source
   assert.equal(roles.can('admin', 'made:up'), false);
   assert.deepEqual(roles.permissionsOf('__proto__'), []);
   const m = roles.matrix();
-  assert.deepEqual(m.roles.map((r) => r.id), ['customer', 'admin']);
-  assert.equal(m.permissions.find((p) => p.id === 'bookings:view-all').roles.join(), 'admin');
+  assert.deepEqual(m.roles.map((r) => r.id), ['customer', 'official', 'admin']);
+  assert.equal(m.permissions.find((p) => p.id === 'bookings:view-all').roles.join(), 'official,admin');
+  assert.equal(m.permissions.find((p) => p.id === 'bookings:cancel-refund').roles.join(), 'admin', 'only the owner refunds');
 });
 
 test('what a signed-in person is allowed to do is told to the browser', async (t) => {
@@ -130,7 +131,7 @@ test('every admin action: a customer cannot cancel a booking or touch sample dat
   assert.equal((await s.get('/api/account/bookings', as(admin))).status, 403);
 });
 
-test('the admin pages: a visitor is sent to sign in, a customer is told it is for operators only, the admin sees the page', async (t) => {
+test('the admin pages: a visitor is sent to sign in, a customer is told it is for staff only, the admin sees the page', async (t) => {
   const s = await site(t);
   const customer = await signUp(s, 'Asha Verma', 'asha@example.com');
   const admin = await adminCookie(s);
@@ -140,7 +141,7 @@ test('the admin pages: a visitor is sent to sign in, a customer is told it is fo
     assert.equal(visitor.headers.get('location'), '/login?next=' + encodeURIComponent(page));
     const cust = await s.get(page, { headers: { cookie: customer, ...HTML_ASK } });
     assert.equal(cust.status, 403, page);
-    assert.match(cust.text, /Operators only/);
+    assert.match(cust.text, /Staff only/);
     const ok = await s.get(page, { headers: { cookie: admin, ...HTML_ASK } });
     assert.equal(ok.status, 200, page);
     assert.ok(!/<script>(?!\s*<\/script>)/.test(ok.text), `${page} has no inline script`);
@@ -379,9 +380,9 @@ test('the admin is shown who may do what', async (t) => {
   const s = await site(t);
   const admin = await adminCookie(s);
   const m = (await s.get('/api/dashboard/roles', as(admin))).json;
-  assert.deepEqual(m.roles.map((r) => r.label), ['Customer', 'Admin (owner)']);
+  assert.deepEqual(m.roles.map((r) => r.label), ['Customer', 'Government official', 'Admin (owner)']);
   assert.ok(m.permissions.length >= 8);
-  assert.deepEqual(m.permissions.find((p) => p.id === 'booking:view-own').roles, ['customer', 'admin'].filter((r) => roles.can(r, 'booking:view-own')));
+  assert.deepEqual(m.permissions.find((p) => p.id === 'booking:view-own').roles, ['customer', 'official', 'admin'].filter((r) => roles.can(r, 'booking:view-own')));
 });
 
 // ===== The pages' scripts ==========================================================================================

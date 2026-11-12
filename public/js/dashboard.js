@@ -15,6 +15,15 @@
   // Shown instead of "Razorpay said: ..." when the refund was cut off by a restart (Razorpay never answered).
   const INTERRUPTED_TEXT = 'The server restarted while this refund was being sent, so nobody knows whether it went through. Retrying is safe: Razorpay does not refund the same payment in full twice, and if the first try did go through, this booking is just marked as refunded.';
 
+  // An official sees every number but cannot refund or run the setup check: those parts of the page are left out for them.
+  let canRefund = true;
+  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view')]).then(([refund, check]) => {
+    canRefund = refund;
+    $('cancel-panel').hidden = !refund;
+    $('check-panel').hidden = !check;
+    $('read-cancel').hidden = !refund;
+  });
+
   let cfg = null;
   let ui = null; // the page's elements, created on the first refresh
   // The lists are only redrawn when something in them changed, so a button is never swapped out from under a click.
@@ -157,7 +166,7 @@
             r.refundInterrupted
               ? INTERRUPTED_TEXT
               : `${r.refundError ? `Razorpay said: ${r.refundError}. ` : ''}Try the refund again, or send it from the Razorpay dashboard.`,
-            h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn-navy btn-sm', type: 'button', onclick: () => openInPanel(r.plate) }, 'Retry refund'))
+            canRefund ? h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn-navy btn-sm', type: 'button', onclick: () => openInPanel(r.plate) }, 'Retry refund')) : null
           )
         : h('div', { class: 'banner warn' }, h('b', null, 'A refund is being sent. '), `${r.plate}, ${rupees(r.amount)}. If this is still here after a few minutes, check the Razorpay dashboard.`)
     );
@@ -166,7 +175,8 @@
   function recentTable(d) {
     if (!d.recent.length) return h('p', { class: 'muted' }, 'No payments yet.');
     const off = d.utcOffsetMinutes;
-    const heads = ['Paid', 'Vehicle', 'Bay', 'Booked for', 'Amount', 'Status', 'Razorpay payment', 'Action'];
+    const heads = ['Paid', 'Vehicle', 'Bay', 'Booked for', 'Amount', 'Status', 'Razorpay payment'];
+    if (canRefund) heads.push('Action');
     return h(
       'table',
       { class: 'table' },
@@ -186,7 +196,8 @@
             h('td', { class: 'num' }, rupees(r.amount)),
             h('td', null, h('span', { class: 'badge ' + r.status }, statusText(r))),
             h('td', { class: 'mono' }, shownId(r.paymentId)),
-            h(
+            canRefund &&
+              h(
               'td',
               null,
               r.canCancel
@@ -510,6 +521,7 @@
     let d;
     try {
       cfg = cfg || (await B.getConfig());
+      await staffReady;
       d = await B.api('/api/dashboard');
     } catch (err) {
       $('updated').textContent = err.status === 401 ? 'Sign in needed. Reload this page and enter the operator user name and password.' : 'Could not refresh: ' + err.message;
