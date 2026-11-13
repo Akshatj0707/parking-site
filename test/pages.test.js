@@ -190,3 +190,16 @@ test('the favicon carries the first letter of the site name', async (t) => {
   const res = await site.get('/favicon.svg');
   assert.match(res.text, />Z<\/text>/);
 });
+
+test('the Pay step tells customers on Razorpay test keys what to type, and says nothing once live keys are in', () => {
+  const src = fs.readFileSync(path.join(PUBLIC, 'js', 'book.js'), 'utf8');
+  const start = src.indexOf('function testNote()');
+  assert.ok(start > 0, 'book.js has the test-mode note');
+  const fn = src.slice(start, src.indexOf('function holdLine()'));
+  assert.ok(fn.includes('success@razorpay'), 'names the test UPI id');
+  assert.ok(fn.includes('4111 1111 1111 1111'), 'names the test card');
+  assert.match(fn, /p\.mode !== 'razorpay' \|\| !p\.test\) return null/, 'only shown for Razorpay test keys');
+  assert.doesNotMatch(fn, /innerHTML/, 'built from text, never from markup');
+  // defined once, shown on the "choose" step and on the "pay" step
+  assert.equal((src.match(/testNote\(\)/g) || []).length, 3);
+});
