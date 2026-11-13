@@ -353,6 +353,21 @@
     return h('p', { class: 'msg ' + n.kind, role: n.kind === 'err' ? 'alert' : null }, n.text, n.link ? [' ', h('a', { href: n.link.href }, n.link.text)] : null);
   }
 
+  // On a site that still uses Razorpay TEST keys, say so and say what to type: Razorpay's test mode refuses real UPI apps and
+  // real UPI ids, which otherwise looks like a broken payment. Nothing is shown once live keys are in.
+  function testNote() {
+    const p = state.cfg && state.cfg.payments;
+    if (!p || p.mode !== 'razorpay' || !p.test) return null;
+    return h(
+      'p',
+      { class: 'msg info', role: 'note' },
+      h('b', null, 'Test mode: '),
+      'no real money is taken, and real UPI apps or UPI ids will not work here. In the payment window choose UPI and enter ',
+      h('b', null, 'success@razorpay'),
+      ', or choose Card and use 4111 1111 1111 1111 with any future expiry and any CVV.'
+    );
+  }
+
   function holdLine() {
     if (!state.checkout || state.expired) return null;
     const left = state.checkout.booking.holdUntil - B.now();
@@ -395,6 +410,7 @@
       h('div', { class: 'sum-total' }, h('p', null, 'Total'), h('p', { class: 'amt' }, a ? rupees(a.amount) : '–')),
       hint ? h('p', { class: 'hold-line' }, hint) : null,
       noteNode(),
+      testNote(),
       h(
         'button',
         { type: 'button', class: 'btn btn-accent btn-block btn-tall', disabled: !ready || state.busy || off, onclick: startPayment },
@@ -427,6 +443,7 @@
       details,
       holdLine(),
       noteNode(),
+      testNote(),
       h(
         'button',
         { type: 'button', class: 'btn btn-accent btn-block btn-tall', onclick: demo ? payDemo : openCheckout },
