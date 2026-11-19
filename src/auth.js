@@ -7,6 +7,9 @@
  *   ADMIN     the lot operator. Signs in with the operator user name and OPERATOR_PASSWORD (there is no admin row in
  *             users.json, so nobody can become an admin by signing up). May use the dashboard, the analytics page,
  *             cancel and refund bookings, and create the logins of government officials.
+ *   ADMIN 2   a second admin, set in the server settings (EXTRA_ADMIN_EMAIL and EXTRA_ADMIN_PASSWORD). Signs in at /login with
+ *             that email, has exactly the rights of ADMIN, and is kept in users.json (or the database) with role "admin".
+ *             Nobody can sign up as an admin: the row is created or updated only from the server settings at start-up.
  *   OFFICIAL  a government official. The owner creates the login (name, email, password) on the Officials page; there is
  *             no way to sign up as one. Sees all the data, changes nothing (see roles.js). Kept in users.json (or the
  *             database) next to the customers, with role "official".
@@ -59,6 +62,18 @@ async function checkPassword(password, stored) {
   if (!salt.length || want.length !== 32) return false;
   const got = await scrypt(password, salt, 32);
   return crypto.timingSafeEqual(got, want);
+}
+
+// The role a stored account signs in with. Anything that is not an admin or an official is a customer.
+const roleOf = (user) => (user.role === 'admin' ? 'admin' : user.role === 'official' ? 'official' : 'customer');
+
+function checkPasswordSync(password, stored) {
+  const parts = String(stored || '').split('$');
+  if (parts.length !== 3 || parts[0] !== 's1') return false;
+  const salt = Buffer.from(parts[1], 'base64url');
+  const want = Buffer.from(parts[2], 'base64url');
+  if (!salt.length || want.length !== 32) return false;
+  return crypto.timingSafeEqual(crypto.scryptSync(password, salt, 32), want);
 }
 
 function cleanName(value) {
@@ -221,8 +236,8 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     const staff = session.role === 'admin' || session.role === 'official';
     const seconds = staff ? ADMIN_SECONDS : CUSTOMER_SECONDS;
     let mark = null;
-    if (session.role === 'admin') mark = passwordMark();
-    else if (session.role === 'official') mark = userMark(users.byId(session.id));
+    if (session.role === 'admin' && !session.id) mark = passwordMark(); // the operator
+    else if (session.role === 'admin' || session.role === 'official') mark = userMark(users.byId(session.id));
     const payload = Buffer.from(JSON.stringify({ r: session.role, u: session.id || null, e: now() + seconds * 1000, p: mark })).toString('base64url');
     res.append('Set-Cookie', `${COOKIE}=${payload}.${sign(payload)}; ${cookieFlags(req, seconds)}`);
     req.bfSession = session;
@@ -253,15 +268,15 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
       return null;
     }
     if (!data || typeof data.e !== 'number' || data.e <= now()) return null;
-    if (data.r === 'admin') {
+    if (data.r === 'admin' && !data.u) {
       if (!config.operator.password || data.p !== passwordMark()) return null;
       req.bfSession = { role: 'admin', id: null, name: config.operator.user, email: null };
-    } else if (data.r === 'customer' || data.r === 'official') {
+    } else if (data.r === 'customer' || data.r === 'official' || data.r === 'admin') {
       const user = typeof data.u === 'string' ? users.byId(data.u) : null;
-      if (!user) return null; // an official whose login was removed is signed out at once
-      const role = user.role === 'official' ? 'official' : 'customer';
+      if (!user) return null; // an official or admin whose login was removed is signed out at once
+      const role = roleOf(user);
       if (role !== data.r) return null;
-      if (role === 'official' && data.p !== userMark(user)) return null;
+      if (role !== 'customer' && data.p !== userMark(user)) return null;
       req.bfSession = { role, id: user.id, name: user.name, email: user.email };
     }
     return req.bfSession;
@@ -314,7 +329,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
       const user = users.byEmail(identifier);
       if (!user && !dummy) dummy = hashPassword('a password nobody has');
       const ok = await checkPassword(password, user ? user.pass : await dummy);
-      if (user && ok) session = { role: user.role === 'official' ? 'official' : 'customer', id: user.id, name: user.name, email: user.email };
+      if (user && ok) session = { role: roleOf(user), id: user.id, name: user.name, email: user.email };
     }
     if (!session) {
       failures.hit(ipKey);
@@ -389,7 +404,63 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     }
   }
 
+  // The second admin, from the server settings (the settings are the only authority). Created when missing; an existing
+  // account with that email (for example a customer who signed up earlier) becomes the admin and keeps its id and
+  // bookings. Changing EXTRA_ADMIN_PASSWORD changes the password and signs that admin out. An admin row whose email is no
+  // longer the one in the settings goes back to being a customer, so removing the settings removes the access.
+  function seedExtraAdmin() {
+    const { email: rawEmail, password, name } = config.auth.extraAdmin || {};
+    let email = null;
+    if (rawEmail || password) {
+      email = normalizeEmail(rawEmail);
+      if (!email || !password) {
+        log.error('EXTRA_ADMIN_EMAIL and EXTRA_ADMIN_PASSWORD must both be set (and the email valid). The second admin was not created.');
+        email = null;
+      } else {
+        try {
+          cleanPassword(password, email);
+        } catch (err) {
+          log.error('EXTRA_ADMIN_PASSWORD is too weak (8 to 100 characters, not a very common password). The second admin was not created.');
+          email = null;
+        }
+      }
+    }
+    let changed = false;
+    for (const u of users.users) {
+      if (u.role === 'admin' && u.email !== email) {
+        u.role = 'customer';
+        changed = true;
+        log.info(`${u.email} is no longer the second admin (it is not in the server settings), so it is a customer again.`);
+      }
+    }
+    if (email) {
+      const existing = users.byEmail(email);
+      if (!existing) {
+        users.add({ id: 'usr_' + crypto.randomBytes(6).toString('hex'), role: 'admin', name: cleanName(name), email, pass: hashPasswordSync(password), createdAt: now() });
+        changed = true;
+        log.info(`The second admin login is ready for ${email}.`);
+      } else {
+        if (existing.role !== 'admin') {
+          existing.role = 'admin';
+          changed = true;
+        }
+        if (!checkPasswordSync(password, existing.pass)) {
+          existing.pass = hashPasswordSync(password);
+          changed = true;
+        }
+        if (changed) log.info(`The second admin login is ready for ${email}.`);
+      }
+    }
+    if (!changed) return;
+    try {
+      users.save();
+    } catch (err) {
+      log.error(`COULD NOT SAVE the second admin: ${err.message}. The login works until the server restarts.`);
+    }
+  }
+
   if (config.auth.seedTestCustomer) seedTestCustomer();
+  seedExtraAdmin();
 
   return { users, current, publicUser, signup, login, logout: end, officials, addOfficial, setOfficialPassword, removeOfficial, TEST_CUSTOMER, USER_ID };
 }
