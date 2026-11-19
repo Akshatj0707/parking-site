@@ -14,6 +14,7 @@ const { RENDER_DISK_PATH } = require('./config');
 const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
 const { createAuth } = require('./auth');
+const { createMailer, cancellationEmail, maskEmail } = require('./mail');
 const roles = require('./roles');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -226,11 +227,12 @@ function connectionReport(req, config, store, chat) {
 // `chat` lets the tests swap in a pretend Anthropic (fetchImpl, apiUrl, timeoutMs). The real site never passes it.
 // `storage` (from storage.js) carries the customer accounts and the sign-in key when they live in the database. Without it
 // they are kept in files next to the bookings, which is what the tests and a computer at home use.
-function createApp({ config, store, razorpay = null, now = Date.now, log = console, chat: chatOptions = {}, storage = null }) {
+function createApp({ config, store, razorpay = null, now = Date.now, log = console, chat: chatOptions = {}, storage = null, mail: mailOptions = {} }) {
   const bookings = createBookingService({ config, store, razorpay, now, log });
   if (storage && storage.kind === 'database') bookings.adopt = () => storage.adopt();
   const chat = createChat({ config, bookings, now, log, ...chatOptions });
   const auth = createAuth({ config, now, log, storage });
+  const mailer = createMailer({ config, log, ...mailOptions });
   const renderPage = createPageRenderer(config, now);
   const app = express();
   app.locals.bookings = bookings;
@@ -605,6 +607,28 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     })
   );
 
+  // Tell the customer by email that the admin cancelled the booking. Never fails the cancellation: the answer says in words
+  // what happened, and the admin sees it in the message under the booking.
+  async function emailCustomer(booking, row, outcome) {
+    if (outcome !== 'refunded' && outcome !== 'refund_failed') return { status: 'skipped', note: '' };
+    const user = booking.customerId ? userById(booking.customerId) : null;
+    if (!user || !user.email) return { status: 'no_email', note: 'No email was sent: this booking was made without an account, so there is no customer email.' };
+    if (!mailer.enabled) return { status: 'not_set_up', note: 'No email was sent: email is not set up on this site (add EMAIL_API_KEY and EMAIL_FROM in Render).' };
+    const money = (paise) => '₹' + (paise % 100 ? (paise / 100).toFixed(2) : String(paise / 100));
+    const content = cancellationEmail({
+      siteName: config.siteName,
+      supportEmail: config.supportEmail,
+      name: user.name,
+      row,
+      amountText: money(booking.amountPaise),
+      refundId: booking.refundId || null,
+      refunded: outcome === 'refunded',
+    });
+    const sent = await mailer.send({ to: user.email, ...content });
+    if (sent.status === 'sent') return { status: 'sent', note: `An email about it was sent to ${maskEmail(user.email)}.` };
+    return { status: 'failed', note: `The email to ${maskEmail(user.email)} could not be sent (${sent.reason}). Tell the customer yourself.` };
+  }
+
   // Cancel a paid booking and refund it in full (or try a failed refund again).
   app.post(
     '/api/dashboard/bookings/:ref/cancel',
@@ -617,8 +641,10 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
       if (!/^[A-Z0-9]{6,12}$/.test(ref)) throw new HttpError(400, 'invalid_ref', 'That booking reference is not valid.');
       const { outcome, booking, message } = await bookings.operatorCancel(ref);
       const row = bookings.operatorRow(booking);
-      if (outcome === 'refund_failed') return res.status(502).json({ error: 'refund_failed', message, booking: row });
-      return res.json({ ok: true, outcome, message, booking: row });
+      const email = await emailCustomer(booking, row, outcome);
+      const said = `${message} ${email.note}`;
+      if (outcome === 'refund_failed') return res.status(502).json({ error: 'refund_failed', message: said, email: email.status, booking: row });
+      return res.json({ ok: true, outcome, message: said, email: email.status, booking: row });
     })
   );
 
