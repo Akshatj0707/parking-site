@@ -210,6 +210,7 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your Razorpay keys. Required for payments. With both empty, a site in production switches booking off (on your own computer the payment is only simulated). Live keys (`rzp_live_…`) also switch booking off on storage that is wiped at every restart (Render's free size). | empty |
 | `RAZORPAY_WEBHOOK_SECRET` | Secret for the optional webhook (section 6). | empty |
 | `OPERATOR_USER`, `OPERATOR_PASSWORD` | The admin's sign-in (for `/login` and every admin page). | `operator`, empty |
+| `EXTRA_ADMIN_EMAIL`, `EXTRA_ADMIN_PASSWORD`, `EXTRA_ADMIN_NAME` | A second admin who signs in at `/login` with this email and password and has every right the admin has. Set the email and the password together, only on your host, never in a file on GitHub. Remove them and that email goes back to being a plain customer. | empty, empty, `Admin` |
 | `CUSTOMER_LOGIN_REQUIRED` | `off` lets anyone book without an account. | on |
 | `SESSION_SECRET` | Optional key that signs the sign-in cookies. Without it a random key is kept in the data folder. | not set |
 | `SEED_TEST_CUSTOMER` | `on` makes a test customer with a published password, for trying the site on your own computer (see Accounts and roles). Never made with Razorpay keys set. | off |

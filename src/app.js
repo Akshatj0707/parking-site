@@ -480,8 +480,8 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     return res.status(403).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owner only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Owner only</h1><p>This page is only for the parking owner.</p><p><a href="/dashboard">Dashboard</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`);
   };
   const userById = (id) => auth.users.byId(id);
-  // The customer numbers and lists count customers only: an official's login is not a customer.
-  const customerAccounts = () => auth.users.users.filter((u) => u.role !== 'official');
+  // The customer numbers and lists count customers only: an official's or an admin's login is not a customer.
+  const customerAccounts = () => auth.users.users.filter((u) => u.role !== 'official' && u.role !== 'admin');
 
   app.get('/api/dashboard', operatorGate, needs('bookings:view-all'), (req, res) => {
     res.json({ ...bookings.dashboard(), payments: bookings.paymentStatus(), operatorProtected: Boolean(config.operator.password) });

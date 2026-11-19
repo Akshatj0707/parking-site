@@ -113,7 +113,7 @@
       ...formShell({
         eyebrow: 'Signed in',
         title: 'You are signed in',
-        lead: user.role === 'admin' ? `Signed in as the parking owner (${user.name}).` : user.role === 'official' ? `Signed in as a government official (${user.name}).` : `Signed in as ${user.name}.`,
+        lead: user.role === 'admin' ? (user.email ? `Signed in as an admin (${user.name}).` : `Signed in as the parking owner (${user.name}).`) : user.role === 'official' ? `Signed in as a government official (${user.name}).` : `Signed in as ${user.name}.`,
       }),
       h('div', { class: 'row' },
         staff ? h('a', { class: 'btn btn-navy', href: '/dashboard' }, 'Open the dashboard') : h('a', { class: 'btn btn-navy', href: '/account' }, 'My bookings'),

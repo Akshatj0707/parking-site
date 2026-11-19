@@ -131,6 +131,13 @@ function loadConfig(env = process.env) {
       // For trying the site on your own computer: SEED_TEST_CUSTOMER=on creates a customer with a published password. It is
       // never created when Razorpay keys are set (a real site), and it is off unless asked for.
       seedTestCustomer: !(keyId && keySecret) && isOn(env.SEED_TEST_CUSTOMER),
+      // A second admin who signs in at /login with an email and a password, with the same rights as the operator. It lives
+      // only in the server settings (EXTRA_ADMIN_EMAIL, EXTRA_ADMIN_PASSWORD, optional EXTRA_ADMIN_NAME), never in the code.
+      extraAdmin: {
+        email: String(env.EXTRA_ADMIN_EMAIL || '').trim().toLowerCase(),
+        password: String(env.EXTRA_ADMIN_PASSWORD || ''),
+        name: String(env.EXTRA_ADMIN_NAME || '').trim() || 'Admin',
+      },
     },
     chat: {
       enabled: chatEnabled,
