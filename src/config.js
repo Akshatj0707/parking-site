@@ -118,6 +118,19 @@ function loadConfig(env = process.env) {
       configured: Boolean(keyId && keySecret),
       live,
     },
+    // Email to customers (a cancellation notice), sent through Brevo or Resend over HTTPS. Off until both the key and the sender are set.
+    email: (() => {
+      const provider = String(env.EMAIL_PROVIDER || 'brevo').trim().toLowerCase();
+      const apiKey = String(env.EMAIL_API_KEY || '').trim();
+      const from = String(env.EMAIL_FROM || '').trim().toLowerCase();
+      return {
+        provider,
+        apiKey,
+        from,
+        fromName: String(env.EMAIL_FROM_NAME || '').trim().slice(0, 60) || siteName,
+        enabled: Boolean(apiKey) && (provider === 'brevo' || provider === 'resend') && /^[^\s@<>]{1,64}@[^\s@<>]{1,100}\.[^\s@<>]{2,}$/.test(from),
+      };
+    })(),
     operator: {
       user: String(env.OPERATOR_USER || 'operator'),
       password: String(env.OPERATOR_PASSWORD || ''),

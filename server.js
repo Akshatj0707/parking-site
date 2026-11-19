@@ -92,6 +92,9 @@ async function main() {
         ? '  Chat        Instant answers, no AI. Add ANTHROPIC_API_KEY under Environment in Render to let an AI answer as well (see DEPLOY-RENDER.md).'
         : '  Chat        Instant answers, no AI. Add ANTHROPIC_API_KEY to .env to let an AI answer as well (see README).');
     }
+    lines.push(config.email.enabled
+      ? `  Email       cancellation emails to customers go out through ${config.email.provider} from ${config.email.from}`
+      : '  Email       OFF: add EMAIL_API_KEY and EMAIL_FROM to email customers when the admin cancels a booking (see README).');
     if (config.chat.enabled && config.chat.apiKey && !/^sk-ant-/.test(config.chat.apiKey)) {
       lines.push('  Note        ANTHROPIC_API_KEY does not look like an Anthropic key (they start with sk-ant-). Check that it was copied in full.');
     }

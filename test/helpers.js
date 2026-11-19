@@ -128,7 +128,7 @@ function fakeDatabase() {
 
 // `chat` is for the chat tests: { fetchImpl, apiUrl, timeoutMs } to stand in for Anthropic, and `log` to see what is logged.
 // `database` (a fakeDatabase(), or a real Database) keeps the bookings and accounts in it instead of in files.
-async function makeSite({ env = {}, razorpayKeys = false, startAt = START, existingDir, chat, log = silentLog, database = null } = {}) {
+async function makeSite({ env = {}, razorpayKeys = false, startAt = START, existingDir, chat, log = silentLog, database = null, mail } = {}) {
   const dir = existingDir || fs.mkdtempSync(path.join(os.tmpdir(), 'bayfind-test-'));
   const keys = razorpayKeys ? { RAZORPAY_KEY_ID: KEY_ID, RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET } : {};
   // Most tests book without an account; the ones about accounts turn this on with env: { CUSTOMER_LOGIN_REQUIRED: 'on' }.
@@ -138,7 +138,7 @@ async function makeSite({ env = {}, razorpayKeys = false, startAt = START, exist
   const storage = database ? await openStorage(config, { database, log }) : null;
   const store = storage ? storage.store : new Store(dir);
   const fake = config.razorpay.configured ? fakeRazorpay() : null;
-  const app = createApp({ config, store, razorpay: fake, now: () => clock.t, log, chat, storage });
+  const app = createApp({ config, store, razorpay: fake, now: () => clock.t, log, chat, storage, mail });
   const server = await new Promise((resolve, reject) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
     s.on('error', reject);
