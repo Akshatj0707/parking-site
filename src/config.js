@@ -180,6 +180,18 @@ function loadConfig(env = process.env) {
     startGraceMinutes: 15,
     maxAdvanceDays: 7,
     holdMinutes: number(env.HOLD_MINUTES, 10, { min: 1 }),
+
+    // The entry and exit QR codes (src/gate.js).
+    gate: {
+      // The entry QR works from this many minutes before the booked start (and until the booked end).
+      earlyMinutes: number(env.QR_EARLY_MINUTES, 15, { min: 0 }),
+      // A vehicle that leaves up to this many minutes after the booked end pays nothing extra. After that every started
+      // hour costs the booking's own hourly rate.
+      graceMinutes: number(env.OVERSTAY_GRACE_MINUTES, 10, { min: 0 }),
+      // The address of the website that goes inside the QR code, such as https://parking-site-demo.onrender.com. Empty: the
+      // address the customer's browser used is taken (Render also tells us its own address in RENDER_EXTERNAL_URL).
+      publicUrl: String(env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || '').trim().replace(/\/+$/, ''),
+    },
   };
 }
 

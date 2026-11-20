@@ -218,6 +218,9 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   const users = storage && storage.users ? storage.users : new UserStore(config.dataDir);
   const secret = loadSecret(config, storage && storage.sessionKey);
   const sign = (text) => crypto.createHmac('sha256', secret).update(text).digest('base64url');
+  // A signature for something other than a sign-in cookie, such as the entry and exit QR codes. The purpose is part of the
+  // text, so a signature made for one purpose is never valid for another (a cookie's text can never contain a "|").
+  const signFor = (purpose, text) => sign(`${purpose}|${text}`);
   // Changing OPERATOR_PASSWORD signs every admin out: the cookie carries a fingerprint of the password it was made with.
   const passwordMark = () => crypto.createHmac('sha256', secret).update('pw|' + config.operator.password).digest('base64url').slice(0, 10);
   const failures = new HitCounter(15 * 60 * 1000, now);
@@ -462,7 +465,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   if (config.auth.seedTestCustomer) seedTestCustomer();
   seedExtraAdmin();
 
-  return { users, current, publicUser, signup, login, logout: end, officials, addOfficial, setOfficialPassword, removeOfficial, TEST_CUSTOMER, USER_ID };
+  return { users, current, publicUser, signup, login, logout: end, officials, addOfficial, setOfficialPassword, removeOfficial, signFor, TEST_CUSTOMER, USER_ID };
 }
 
 module.exports = { createAuth, UserStore, hashPassword, checkPassword, normalizeEmail, TEST_CUSTOMER, USER_ID, COOKIE };

@@ -164,6 +164,26 @@ Good to know:
 - In test mode nothing was paid, so cancelling just cancels.
 - The cancel buttons are protected by the same operator password as the dashboard, so set one before the site goes online. They also only work from the dashboard page itself, so a link or form on another website cannot trigger a refund.
 
+### Entry and exit QR codes (scanning at the lot)
+
+When a booking is paid, the customer gets **two QR codes** on the confirmation page and on their pass page (`/pass`, also under **My bookings** for a signed-in customer):
+
+- **Entry QR**: the admin scans it when the vehicle drives in. It works from 15 minutes before the booked start until the booked end, and **only once**.
+- **Exit QR**: the admin scans it when the vehicle leaves. It needs an entry scan first.
+
+**Who scans.** Only the **admin** (the operator login and the second admin login). Open **Scan QR** in the menu (or the button on the dashboard) on a phone that is signed in as the admin, allow the camera, and point it at the customer's phone. The code says by itself whether it is an entry or an exit, and the answer comes in large green (accepted), amber (look at it) or red (refused). A normal phone camera also works: the QR holds the address `/scan?t=...`, which opens the scanner after the admin has signed in. If a phone is flat or the camera cannot read the code, type the **booking reference or the vehicle number** and press **Entry** or **Exit**. Government officials and customers cannot scan: the page and its requests are refused to them.
+
+**Staying too long.** If the vehicle leaves up to 10 minutes after the booked end, nothing extra is charged. After that, every **started hour** is charged at **the booking's own hourly rate** (a booking of 11:00 to 13:00 at ₹40 an hour that leaves at 14:10 owes 2 extra hours, ₹80). The exit scan works out the amount and fixes it. The customer's pass page then shows **Pay**, the customer pays through Razorpay on their own phone, and the exit is complete (and the scanner screen turns green) only after the payment. If a customer cannot pay online, the admin can press **Collected another way** (for example cash) or **Waive the charge** on the scanner screen. While a vehicle is inside past its time, the pass page already shows what leaving now would cost.
+
+Good to know:
+
+- The QR codes hold only a **signed reference** (made with the site's secret), nothing else, so nobody can make one for another booking. The pass link (`/pass?t=...`) is the key to a booking's QR codes: it is shown to the customer who paid (and under My bookings), never in the public “Find my booking” by vehicle number. A guest without an account should save the pass link or take a screenshot.
+- A booking whose vehicle has been **scanned in cannot be cancelled** from the dashboard any more.
+- The extra time is **not** part of the booking money in the analytics pages. The dashboard shows it in its own tile, **Extra time paid today**, next to **Vehicles inside now**.
+- Payments for extra time are checked the same three ways as bookings: the browser's confirmation (signature checked), Razorpay's webhook, and a once-a-minute check at Razorpay for a payment that was never confirmed.
+- Settings: `QR_EARLY_MINUTES` (default 15), `OVERSTAY_GRACE_MINUTES` (default 10) and `PUBLIC_URL` (the website address that goes into the QR codes; Render fills it in by itself).
+- Not handled: a vehicle that stays past its time can still be in a bay that someone else booked next. The site charges for the extra time but does not move the next booking.
+
 ### The chat assistant
 
 Every public page (not the dashboard) has a yellow **Ask us** button in the bottom-right corner. It opens a chat window where a driver can ask what parking costs, whether bays are free now or at a later time, how to book, how to find a booking, how refunds work and how to reach the lot. An answer can come with buttons (such as **Book a bay**, **Find my booking** or **Call us**) and a small card that shows the free bays. On a phone the window fills the screen. The chat lives in the driver's browser tab and is gone when the tab is closed.
@@ -226,6 +246,9 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `RATE_BIKE_WEEKDAY`, `RATE_BIKE_WEEKEND` | 2-wheeler price per hour, in rupees. | `20`, `30` |
 | `WEEKEND_DAYS` | Which days use the weekend price: `0` = Sunday … `6` = Saturday. | `0,6` |
 | `HOLD_MINUTES` | How long a bay is held while the driver pays. | `10` |
+| `QR_EARLY_MINUTES` | The entry QR code works from this many minutes before the booked start. | `15` |
+| `OVERSTAY_GRACE_MINUTES` | A vehicle may leave this many minutes after the booked end without paying extra. After that every started hour is charged. | `10` |
+| `PUBLIC_URL` | The website address inside the QR codes, such as `https://parking-site-demo.onrender.com`. Empty: the address the customer used (Render also sets `RENDER_EXTERNAL_URL`). | empty |
 | `UTC_OFFSET_MINUTES` | The lot's clock, in minutes ahead of UTC. `330` is India. | `330` |
 | `AI_API_KEY`, `AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL` | A free (or any OpenAI-compatible) AI for the chat: see “Free AI answers for the chat”. | empty, `gemini` |
 | `ANTHROPIC_API_KEY` | Your Anthropic key, so that an AI writes the chat answers (section 3, “The chat assistant”). It starts with `sk-ant-`. Keep it private. Empty means built-in answers only. | empty |
@@ -319,7 +342,7 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 - **If you refund a payment by hand in the Razorpay Dashboard, the site is not told**, so the bay stays reserved for that time. Use **Cancel and refund** on the dashboard instead.
 - **The site refunds by itself only when a bay is lost** (section 3). Every other refund is your decision.
 - **No protection against people who start bookings and never pay**, which holds a bay for 10 minutes each time. There is a limit on how many attempts one visitor can make, but add a CAPTCHA or phone verification before a large public launch.
-- **Nothing is connected to the gate, cameras or sensors.** A bay is reserved by time only.
+- **No barrier, camera or sensor is connected.** The entry and exit QR codes are scanned by a person with a phone (section 3, “Entry and exit QR codes”). Nothing opens a gate by itself, and a vehicle that never gets scanned is not noticed.
 - **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database.
 - **No tax invoices.** If your business needs GST invoices, talk to your accountant; Razorpay's Dashboard keeps the payment records.
 - **The policy pages are plain-language starting points, not legal advice.** Read each one and change what does not match how you run the lot, above all the cancellation rule on `/refunds`. Have a lawyer or your accountant look at them before you take real money. They say nothing about who is responsible for a vehicle or what is left inside it, and nothing about GST: ask your accountant whether GST applies to your parking and how it has to be shown. The words are in the `public/legal` folder (plain HTML). When you change a page, also change the “Last updated” date on it (the line that starts with `<p class="updated">`). After a change, upload the folder again and run the setup (DEPLOY.md, step 11).
@@ -361,6 +384,7 @@ server.js        starts the site (reads .env, checks the Node version, prints th
 src/
   app.js         pages, the API, the webhook and the security headers
   bookings.js    the booking rules: holds, prices, conflicts, payment confirmation, refunds
+  gate.js        the entry and exit QR codes: signed tokens, scanning in and out, paying for extra time
   payments.js    Razorpay: creating orders, checking signatures
   store.js       saving bookings to data/bookings.json
   config.js      reads the settings

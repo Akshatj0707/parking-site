@@ -24,6 +24,7 @@ const S = require('../public/js/shared.js');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
 const { analytics, overview, sampleBookings } = require('./analytics');
+const { gateState } = require('./gate');
 
 const { MIN, HOUR, DAY, LOT, VEHICLES } = S;
 
@@ -58,6 +59,11 @@ class BookingService {
     this.reconciling = false;
     // With a database: asks it for records another copy of the site saved (set by app.js). Null when bookings are in files.
     this.adopt = null;
+    // Set by app.js (see gate.js): the address of a booking's pass page, and the two checks for payments of extra parking
+    // time. Without them (a plain BookingService) no pass is offered and every payment is an ordinary booking payment.
+    this.passPath = null;
+    this.overstayWebhook = null;
+    this.overstayReconcile = null;
   }
 
   // The booking that belongs to a Razorpay order. If this copy of the site does not know the order and the bookings are in a
@@ -468,6 +474,11 @@ class BookingService {
     if (!event || (event.event !== 'payment.captured' && event.event !== 'order.paid')) return { ignored: 'event' };
     const p = event.payload && event.payload.payment && event.payload.payment.entity;
     if (!p || typeof p.id !== 'string' || typeof p.order_id !== 'string') return { ignored: 'no_payment' };
+    if (this.overstayWebhook) {
+      // a payment for the extra time of a vehicle that stayed too long belongs to no booking order
+      const extra = await this.overstayWebhook(p);
+      if (extra) return extra;
+    }
     const booking = await this.findByOrder(p.order_id);
     if (!booking) return { ignored: 'unknown_order' }; // possibly another site that shares this Razorpay account
     if (p.amount !== booking.amountPaise || p.currency !== 'INR') {
@@ -512,6 +523,7 @@ class BookingService {
           this.persist();
         }
       }
+      if (this.overstayReconcile) found += await this.overstayReconcile();
     } finally {
       this.reconciling = false;
     }
@@ -631,6 +643,8 @@ class BookingService {
       amount: b.amountPaise / 100,
       status: b.status,
       holdUntil: b.holdUntil,
+      // the page with the entry and exit QR codes: only a paid booking has one, and only the person who paid is given it
+      ...(b.status === 'paid' && this.passPath ? { pass: this.passPath(b) } : {}),
     };
   }
 
@@ -663,7 +677,8 @@ class BookingService {
 
   // A paid booking that has not ended yet can be cancelled. A refund that failed can be tried again.
   canCancel(b, now) {
-    return (b.status === 'paid' && b.endMs > now) || b.status === 'refund_failed';
+    // once the vehicle has been scanned in the parking is being used, so it can no longer be cancelled
+    return (b.status === 'paid' && b.endMs > now && !b.entryAt) || b.status === 'refund_failed';
   }
 
   // One booking as the operator sees it. Unlike the public pages it includes the money details.
@@ -690,6 +705,7 @@ class BookingService {
       refundInterrupted: Boolean(b.refundInterrupted),
       state: b.endMs <= now ? 'ended' : b.startMs <= now ? 'active' : 'upcoming',
       canCancel: this.canCancel(b, now),
+      gate: gateState(b, now, this.config.gate),
     };
   }
 
@@ -719,6 +735,11 @@ class BookingService {
     if (booking.status === 'refunded') throw new HttpError(409, 'already_refunded', 'This booking was already cancelled and refunded.');
     if (booking.status === 'cancelled' && booking.cancelReason === 'operator') {
       throw new HttpError(409, 'already_cancelled', 'This booking was already cancelled.');
+    }
+    if (booking.status === 'paid' && booking.entryAt) {
+      throw new HttpError(409, 'vehicle_inside', booking.exitAt
+        ? 'The vehicle of this booking has already been parked and has left, so it cannot be cancelled here. If the customer should get their money back, refund the payment from the Razorpay Dashboard.'
+        : 'The vehicle of this booking has already been scanned in, so it cannot be cancelled here. If the customer should get their money back, refund the payment from the Razorpay Dashboard.');
     }
     if (!this.canCancel(booking, now)) {
       throw new HttpError(
@@ -847,6 +868,26 @@ class BookingService {
     const revenuePaise = receivedToday.reduce((sum, b) => sum + b.amountPaise, 0);
     const paymentsToday = receivedToday.length;
 
+    // The entry and exit QR codes: who is inside now, and the extra time that was paid today (kept apart from the booking money
+    // above, which is what the analytics pages count).
+    let inside = 0;
+    let overstaying = 0;
+    let waiting = 0;
+    let extraTodayPaise = 0;
+    let extraTodayCount = 0;
+    for (const b of all) {
+      if (b.status !== 'paid') continue;
+      const stage = gateState(b, now, this.config.gate).stage;
+      if (stage === 'inside' || stage === 'overstaying' || stage === 'payment_due') inside += 1; // still in until the extra time is paid
+      if (stage === 'overstaying') overstaying += 1;
+      if (stage === 'payment_due') waiting += 1;
+      const ov = b.overstay;
+      if (ov && ov.status === 'paid' && ov.paidAt >= dayStart && ov.paidAt < dayEnd) {
+        extraTodayPaise += ov.amountPaise;
+        extraTodayCount += 1;
+      }
+    }
+
     const row = (b) => this.operatorRow(b, now);
     const recent = all
       .filter((b) => b.status === 'paid' || b.status.startsWith('refund') || (b.status === 'cancelled' && b.cancelReason === 'operator'))
@@ -866,6 +907,7 @@ class BookingService {
       paymentsToday,
       recent,
       attention,
+      gate: { inside, overstaying, paymentDue: waiting, extraToday: extraTodayPaise / 100, extraPaymentsToday: extraTodayCount },
     };
   }
 
@@ -1095,6 +1137,8 @@ class BookingService {
           window: S.formatWindow(b.startMs, b.endMs, off),
           amount: b.amountPaise / 100,
           state,
+          // the entry and exit QR codes of a paid booking, and where the vehicle is in its visit
+          ...(b.status === 'paid' ? { stage: gateState(b, now, this.config.gate).stage, ...(this.passPath ? { pass: this.passPath(b) } : {}) } : {}),
         };
       });
   }

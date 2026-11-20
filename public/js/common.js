@@ -260,6 +260,8 @@
     if (user.role === 'admin' || user.role === 'official') {
       if (!has('/dashboard')) add(link('/dashboard', 'Dashboard'));
       if (!has('/business')) add(link('/business', 'Business'));
+      // Only the admin may scan customers in and out; the page and its requests are refused to everyone else.
+      if (Array.isArray(user.permissions) && user.permissions.includes('gate:scan') && !has('/scan')) add(link('/scan', 'Scan QR'));
       // Only the owner manages the officials' logins; the officials' own pages are labelled for them.
       if (user.role === 'admin' && has('/analytics') && !has('/officials')) nav.insertBefore(h('a', { class: 'nav-auth', href: '/officials', 'data-auth': '' }, 'Officials'), has('/analytics').nextSibling);
       const sub = document.querySelector('header .brand-sub');

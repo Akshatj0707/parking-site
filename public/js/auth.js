@@ -14,7 +14,7 @@
     const next = new URLSearchParams(location.search).get('next');
     return next && /^\/(?!\/)[A-Za-z0-9\-._~/?=&%]*$/.test(next) ? next : null;
   }
-  const operatorPath = (path) => /^\/(dashboard|analytics|business|bookings|customers|officials)(\/|\?|$)/.test(path);
+  const operatorPath = (path) => /^\/(dashboard|analytics|business|bookings|customers|officials|scan)(\/|\?|$)/.test(path);
   const isStaff = (user) => user.role === 'admin' || user.role === 'official';
 
   function field(id, label, attrs, help) {
@@ -123,15 +123,19 @@
   }
 
   // ---- My bookings -----------------------------------------------------------------------------------------
-  const STATE_TEXT = { upcoming: 'Upcoming', active: 'Parked now', completed: 'Finished', cancelled: 'Cancelled', refunded: 'Cancelled and refunded' };
+  const STATE_TEXT = { upcoming: 'Upcoming', active: 'Booked now', completed: 'Finished', cancelled: 'Cancelled', refunded: 'Cancelled and refunded' };
+  // Where the vehicle is in its visit (the entry and exit QR codes), shown instead of the plain state once it has come in.
+  const STAGE_TEXT = { inside: 'Parked', overstaying: 'Parked, over time', payment_due: 'Extra time to pay', left: 'Finished' };
   const STATE_CLASS = { upcoming: 'paid', active: 'paid', completed: 'cancelled', cancelled: 'cancelled', refunded: 'refunded' };
 
   function bookingCard(b) {
+    const open = b.pass && b.stage !== 'left' && b.stage !== 'unused' && b.stage !== 'void';
     return h('li', { class: 'my-booking' },
-      h('div', { class: 'my-booking-head' }, h('b', null, b.plate), h('span', { class: 'badge ' + (STATE_CLASS[b.state] || 'cancelled') }, STATE_TEXT[b.state] || b.state)),
+      h('div', { class: 'my-booking-head' }, h('b', null, b.plate), h('span', { class: 'badge ' + (STATE_CLASS[b.state] || 'cancelled') }, STAGE_TEXT[b.stage] || STATE_TEXT[b.state] || b.state)),
       h('p', null, b.window),
       h('p', { class: 'muted' }, `${b.vehicleLabel}, bay ${b.bay} (${b.zone}) · ${b.hours} h · ${rupees(b.amount)}`),
-      h('p', { class: 'fine' }, 'Booking reference ', h('b', null, b.ref)));
+      h('p', { class: 'fine' }, 'Booking reference ', h('b', null, b.ref)),
+      open ? h('a', { class: 'btn btn-navy', href: b.pass }, 'Open entry and exit QR codes') : null);
   }
 
   async function accountView(cfg, user) {

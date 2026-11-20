@@ -26,6 +26,7 @@ const PERMISSIONS = {
   'system:view': 'Run the setup check',
   'accounts:manage': 'Create and remove the logins of government officials',
   'samples:manage': 'Add or remove sample bookings (test mode only)',
+  'gate:scan': 'Scan the entry and exit QR codes of customers at the lot',
 };
 
 const ROLES = {
@@ -41,8 +42,8 @@ const ROLES = {
   },
   admin: {
     label: 'Admin (owner)',
-    summary: 'Full access: all the data, refunds, the settings check, and the logins of government officials.',
-    permissions: ['booking:create', 'bookings:view-all', 'bookings:cancel-refund', 'bookings:export', 'customers:view', 'analytics:view', 'payments:view', 'system:view', 'accounts:manage', 'samples:manage'],
+    summary: 'Full access: all the data, refunds, scanning customers in and out at the lot, the settings check, and the logins of government officials.',
+    permissions: ['booking:create', 'bookings:view-all', 'bookings:cancel-refund', 'bookings:export', 'customers:view', 'analytics:view', 'payments:view', 'system:view', 'accounts:manage', 'samples:manage', 'gate:scan'],
   },
 };
 

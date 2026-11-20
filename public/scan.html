@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Scan entry and exit · {{SITE_NAME}}</title>
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/gate.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to scan QR codes.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}<span class="brand-sub">Admin</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/bookings">Bookings</a>
+      <a href="/scan" aria-current="page">Scan QR</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap main-pad scan-page">
+  <div class="scan-wrap">
+    <div class="stack g8 rise">
+      <p class="eyebrow">At the gate</p>
+      <h1 class="h2">Scan entry and exit</h1>
+      <p class="muted">Point the camera at the customer’s QR code. The code itself says whether it is an <b>entry</b> or an <b>exit</b>.</p>
+    </div>
+
+    <div class="scan-view" id="view">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="frame" aria-hidden="true"></div>
+      <p class="hint" id="hint" role="status">Starting the camera…</p>
+      <div class="off" id="off" hidden>
+        <p id="off-text">The camera is off.</p>
+        <button class="btn btn-accent" type="button" id="start">Start camera</button>
+      </div>
+    </div>
+
+    <div class="stack g16" id="result" aria-live="assertive"></div>
+
+    <section class="panel" aria-labelledby="manual-title">
+      <h2 id="manual-title">No QR code?</h2>
+      <p class="fine">If the customer’s phone is flat or the camera cannot read it, type the booking reference or the vehicle number.</p>
+      <form class="manual" id="manual" novalidate>
+        <div class="row" role="group" aria-label="What to type">
+          <button class="chip" type="button" id="by-ref" aria-pressed="true">Booking reference</button>
+          <button class="chip" type="button" id="by-plate" aria-pressed="false">Vehicle number</button>
+        </div>
+        <div class="field">
+          <label class="label" for="typed" id="typed-label">Booking reference</label>
+          <input class="input input-plate" id="typed" name="typed" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" placeholder="For example K7M2QX">
+        </div>
+        <div class="row">
+          <button class="btn btn-navy btn-tall" type="submit" data-action="in">Entry</button>
+          <button class="btn btn-outline btn-tall" type="submit" data-action="out">Exit</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" aria-labelledby="inside-title">
+      <div class="panel-head">
+        <h2 id="inside-title">Inside now</h2>
+        <p class="fine" id="inside-count">Loading…</p>
+      </div>
+      <ul class="inside-list" id="inside"></ul>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Gate scanner</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/scan.js"></script>
+</body>
+</html>

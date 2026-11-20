@@ -17,7 +17,8 @@
 
   // An official sees every number but cannot refund or run the setup check: those parts of the page are left out for them.
   let canRefund = true;
-  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view')]).then(([refund, check]) => {
+  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view'), B.can('gate:scan')]).then(([refund, check, scan]) => {
+    $('scan-link').hidden = !scan;
     canRefund = refund;
     $('cancel-panel').hidden = !refund;
     $('check-panel').hidden = !check;
@@ -88,12 +89,12 @@
 
   function build() {
     ui = {
-      tiles: { car: makeTile('tile-dark', ''), bike: makeTile('', ''), payments: makeTile('', 'Payments today'), money: makeTile('', 'Received today') },
+      tiles: { car: makeTile('tile-dark', ''), bike: makeTile('', ''), payments: makeTile('', 'Payments today'), money: makeTile('', 'Received today'), inside: makeTile('', 'Vehicles inside now'), extra: makeTile('', 'Extra time paid today') },
       lots: { car: makeLot('car'), bike: makeLot('bike') },
     };
     ui.tiles.car.root.firstChild.textContent = cfg.lot.car.label + ' bays in use now';
     ui.tiles.bike.root.firstChild.textContent = cfg.lot.bike.label + ' bays in use now';
-    $('tiles').replaceChildren(ui.tiles.car.root, ui.tiles.bike.root, ui.tiles.payments.root, ui.tiles.money.root);
+    $('tiles').replaceChildren(ui.tiles.car.root, ui.tiles.bike.root, ui.tiles.payments.root, ui.tiles.money.root, ui.tiles.inside.root, ui.tiles.extra.root);
     $('lots').replaceChildren(ui.lots.car.root, ui.lots.bike.root);
   }
 
@@ -137,6 +138,12 @@
     ui.tiles.payments.note.textContent = `${car.paymentsToday} for cars, ${bike.paymentsToday} for two-wheelers`;
     ui.tiles.money.n.textContent = rupees(d.revenueToday);
     ui.tiles.money.note.textContent = `${rupees(car.revenueToday)} from cars, ${rupees(bike.revenueToday)} from two-wheelers`;
+    // from the entry and exit QR scans (the booking money above does not include the extra time)
+    const g = d.gate || { inside: 0, overstaying: 0, paymentDue: 0, extraToday: 0, extraPaymentsToday: 0 };
+    ui.tiles.inside.n.textContent = String(g.inside);
+    ui.tiles.inside.note.textContent = g.overstaying || g.paymentDue ? `${g.overstaying} over their time, ${g.paymentDue} waiting to pay extra` : 'scanned in and not yet out';
+    ui.tiles.extra.n.textContent = rupees(g.extraToday);
+    ui.tiles.extra.note.textContent = `${g.extraPaymentsToday} ${g.extraPaymentsToday === 1 ? 'vehicle' : 'vehicles'} stayed past the booked time`;
   }
 
   function noticeNodes(d) {

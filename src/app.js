@@ -14,6 +14,7 @@ const { RENDER_DISK_PATH } = require('./config');
 const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
 const { createAuth } = require('./auth');
+const { createGate } = require('./gate');
 const { createMailer, cancellationEmail, maskEmail } = require('./mail');
 const roles = require('./roles');
 
@@ -29,13 +30,15 @@ const PAGES = {
   '/bookings': 'bookings.html',
   '/customers': 'customers.html',
   '/officials': 'officials.html',
+  '/scan': 'scan.html',
+  '/pass': 'pass.html',
   '/login': 'auth.html',
   '/signup': 'auth.html',
   '/account': 'auth.html',
 };
 // Pages for the staff: the owner (admin) and government officials. The Officials page is for the owner alone.
-const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers', '/officials']);
-const OWNER_PAGES = { '/officials': 'accounts:manage' };
+const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers', '/officials', '/scan']);
+const OWNER_PAGES = { '/officials': 'accounts:manage', '/scan': 'gate:scan' };
 // The policy pages. Razorpay looks for these before it switches a shop to live payments. The words of each page are in
 // public/legal/<name>.html; public/legal.html wraps them in the site's header and footer. The footer links come from
 // this list, in this order.
@@ -232,12 +235,19 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   if (storage && storage.kind === 'database') bookings.adopt = () => storage.adopt();
   const chat = createChat({ config, bookings, now, log, ...chatOptions });
   const auth = createAuth({ config, now, log, storage });
+  // The entry and exit QR codes. The booking service asks it for a booking's pass page and hands it the payments that are
+  // for extra parking time.
+  const gate = createGate({ config, bookings, razorpay, now, log, signFor: auth.signFor });
+  bookings.passPath = (b) => gate.passPath(b);
+  bookings.overstayWebhook = (payment) => gate.handleWebhook(payment);
+  bookings.overstayReconcile = () => gate.reconcile();
   const mailer = createMailer({ config, log, ...mailOptions });
   const renderPage = createPageRenderer(config, now);
   const app = express();
   app.locals.bookings = bookings;
   app.locals.chat = chat;
   app.locals.auth = auth;
+  app.locals.gate = gate;
   app.disable('x-powered-by');
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
   app.use(securityHeaders(config));
@@ -375,6 +385,49 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   app.get('/api/bookings/lookup', lookupLimit, (req, res) => {
     res.json(bookings.lookup(req.query.plate));
   });
+
+  // ---- The customer's pass: the entry and exit QR codes of a paid booking, and paying for extra parking time ----------
+  // The pass token in the address is the key to the page (see gate.js), so nothing else is asked.
+  const passLimit = createLimiter({ windowMs: 60 * 1000, max: 90 });
+  const passToken = (req) => (typeof req.query.t === 'string' ? req.query.t : '');
+  // The address that goes into a QR code: the settings if they name one, otherwise the address this page was opened on.
+  const siteOrigin = (req) => config.gate.publicUrl || `${req.protocol}://${req.get('host')}`;
+
+  app.get('/api/pass', passLimit, (req, res) => {
+    res.json(gate.passInfo(passToken(req)));
+  });
+
+  app.get('/api/pass/qr', passLimit, (req, res) => {
+    const svg = gate.qrFor(passToken(req), String(req.query.k || ''), siteOrigin(req));
+    res.set('Cache-Control', 'no-store');
+    res.type('image/svg+xml').send(svg);
+  });
+
+  app.post(
+    '/api/pass/overstay/start',
+    verifyLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.startOverstay(req.body && req.body.t));
+    })
+  );
+
+  app.post(
+    '/api/pass/overstay/verify',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const { booking } = await gate.verifyOverstay(req.body);
+      res.json({ status: 'paid', gate: gate.state(booking), booking: gate.summary(booking) });
+    })
+  );
+
+  app.post(
+    '/api/pass/overstay/demo-confirm',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const { booking } = await gate.confirmDemo(req.body && req.body.t);
+      res.json({ status: 'paid', gate: gate.state(booking), booking: gate.summary(booking) });
+    })
+  );
 
   // ---- Accounts: customers sign up and sign in; the operator signs in with the operator password -------------------
   const signInLimit = createLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many sign-in attempts. Please wait a minute and try again.' });
@@ -518,6 +571,41 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   }
 
   const operatorLimit = createLimiter({ windowMs: 60 * 1000, max: 60 });
+
+  // Scanning customers in and out at the lot. Only the admin (gate:scan). The phone must be signed in as the admin.
+  const gateLimit = createLimiter({ windowMs: 60 * 1000, max: 240 });
+  const scanner = (req) => auth.current(req);
+
+  app.post(
+    '/api/dashboard/gate/scan',
+    operatorGate,
+    needs('gate:scan'),
+    ownPagesOnly,
+    gateLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.scan(req.body, scanner(req)));
+    })
+  );
+
+  app.get('/api/dashboard/gate/status', operatorGate, needs('gate:scan'), gateLimit, (req, res) => {
+    res.json(gate.status(req.query.ref));
+  });
+
+  app.get('/api/dashboard/gate/inside', operatorGate, needs('gate:scan'), gateLimit, (req, res) => {
+    res.json(gate.inside());
+  });
+
+  // The customer paid the extra time in cash, or the admin drops the charge.
+  app.post(
+    '/api/dashboard/gate/settle',
+    operatorGate,
+    needs('gate:scan'),
+    ownPagesOnly,
+    gateLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.settleManually(req.body && req.body.ref, req.body && req.body.method, scanner(req)));
+    })
+  );
 
   // Find the bookings of one vehicle number that the operator can cancel or retry a refund for.
   app.get('/api/dashboard/bookings', operatorGate, needs('bookings:view-all'), operatorLimit, (req, res) => {

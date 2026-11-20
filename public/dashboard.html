@@ -38,7 +38,10 @@
       <p class="eyebrow">Operator dashboard</p>
       <h1 class="h1">Today at the lot</h1>
     </div>
-    <p class="updated" id="updated" role="status">Loading…</p>
+    <div class="stack g8">
+      <a class="btn btn-accent btn-tall" id="scan-link" href="/scan" hidden>Scan entry and exit QR codes</a>
+      <p class="updated" id="updated" role="status">Loading…</p>
+    </div>
   </div>
 
   <div class="stack g12" id="notice"></div>
@@ -96,6 +99,7 @@
     <ul class="plain-list">
       <li><b>In use now</b> means a paid booking is running at this moment. It is based on bookings, not on sensors, so it cannot tell whether the vehicle has actually arrived.</li>
       <li><b>Booked later today</b> is a paid booking that starts after now.</li>
+      <li><b>Vehicles inside now</b> counts the vehicles whose entry QR code was scanned and whose exit QR code was not. <b>Extra time paid today</b> is what vehicles paid for staying past their booked time, and it is not part of the booking money. Open <b>Scan entry and exit QR codes</b> on a phone at the gate to scan them.</li>
       <li><b>Payment in progress</b> is a bay held for someone who is paying right now. It is released after {{HOLD_MINUTES}} minutes if they do not finish.</li>
       <li>Money figures count payments received today, in rupees. A booking that is cancelled and refunded is taken out of them.</li>
       <li id="read-cancel">To cancel a booking and give the money back, use <b>Cancel and refund a booking</b> at the top of the page.</li>

@@ -16,6 +16,7 @@
   "dependencies": {
     "express": "^4.22.3",
     "pg": "^8.23.1",
+    "qrcode-generator": "^1.4.4",
     "razorpay": "^2.9.8"
   }
 }
