@@ -338,7 +338,9 @@ class Gate {
       await this.bookings.persistNow();
       this.log.info(`Booking ${b.ref} (${b.plate}) left, scanned by ${b.exitBy}.`);
       const late = extra.overMinutes > 0 ? ` It left ${extra.overMinutes} min after the booked end, which is inside the free ${this.gateConfig.graceMinutes} minutes.` : '';
-      return this.reply('ok', 'exited', 'Exit recorded', `Nothing extra to pay. Let the vehicle go.${late}`, b, now);
+      // Left before the booked end: the bay shows as free on the website from now on and can be booked again.
+      const early = now < b.endMs ? ` It left before the booked end, so bay ${b.bay} is free again for other drivers.` : '';
+      return this.reply('ok', 'exited', 'Exit recorded', `Nothing extra to pay. Let the vehicle go.${late}${early}`, b, now);
     }
     b.overstay = { hours: extra.hours, overMinutes: extra.overMinutes, rate: ratePerHour(b), amountPaise: extra.amountPaise, status: 'due', computedAt: now };
     await this.bookings.persistNow();

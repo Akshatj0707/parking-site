@@ -868,3 +868,78 @@ test('the lot-details page is rate limited per visitor', async (t) => {
   for (let i = 0; i < 62; i++) last = await s.get('/scan?t=' + token, { headers: HTML_ASK });
   assert.equal(last.status, 429);
 });
+
+// ===== Leaving early frees the bay ====================================================================
+// A booking of 11:00 to 13:00 whose vehicle is scanned out at 11:30 no longer holds its bay: the website shows it free.
+
+const freeCarBays = async (s, time, hours = 1) => {
+  const r = await s.get(`/api/availability?vehicle=car&date=2026-10-14&time=${time}&hours=${hours}`);
+  assert.equal(r.status, 200, r.text);
+  return r.json.free;
+};
+
+test('a vehicle that leaves before its booked end frees the bay on the website straight away', async (t) => {
+  const s = await site(t);
+  const { booking } = await paidBooking(s); // bay C001, 11:00 to 13:00
+  assert.equal(booking.bay, 'C001');
+  clockAt(s, 10, 50);
+  await scanToken(s, 'in', booking);
+  clockAt(s, 11, 30);
+  assert.equal(await freeCarBays(s, '11:30'), 199, 'still inside: the bay is not free');
+  let dash = (await s.get('/api/dashboard')).json;
+  assert.equal(dash.lot.car.inUse, 1);
+  assert.equal(dash.lot.car.bays[0], 'u');
+
+  const out = await scanToken(s, 'out', booking);
+  assert.equal(out.json.outcome, 'exited');
+  assert.equal(out.json.tone, 'ok');
+  assert.match(out.json.message, /free again for other drivers/);
+  assert.match(out.json.message, /C001/);
+
+  // the same time window, now showing the bay as free again
+  assert.equal(await freeCarBays(s, '11:30'), 200);
+  assert.equal(await freeCarBays(s, '12:00'), 200);
+  dash = (await s.get('/api/dashboard')).json;
+  assert.equal(dash.lot.car.inUse, 0);
+  assert.equal(dash.lot.car.free, 200);
+  assert.equal(dash.lot.car.bays[0], 'f');
+
+  // and another driver can book exactly that bay for the rest of the original time
+  const other = await s.post('/api/bookings', car({ bay: 'C001', plate: 'MP09CD5678', time: '12:00', hours: 1 }));
+  assert.equal(other.status, 201, other.text);
+  assert.equal(other.json.booking.bay, 'C001');
+});
+
+test('a vehicle that is still inside keeps its bay, and one that left at or after the booked end changes nothing', async (t) => {
+  const s = await site(t);
+  const { booking } = await paidBooking(s);
+  clockAt(s, 10, 50);
+  await scanToken(s, 'in', booking);
+  clockAt(s, 12, 0);
+  const taken = await s.post('/api/bookings', car({ bay: 'C001', plate: 'MP09CD5678', time: '12:00', hours: 1 }));
+  assert.equal(taken.status, 409);
+  assert.equal(taken.json.error, 'bay_taken');
+
+  clockAt(s, 13, 5); // after the booked end, inside the free minutes
+  const out = await scanToken(s, 'out', booking);
+  assert.equal(out.json.outcome, 'exited');
+  assert.doesNotMatch(out.json.message, /free again/, 'it left after the booked end, so nothing was given back early');
+  assert.equal(await freeCarBays(s, '13:00'), 200, 'the bay was free after 13:00 anyway');
+});
+
+test('after leaving early the booking is over for the driver, and the same vehicle may book again', async (t) => {
+  const s = await site(t);
+  const { booking, pass } = await paidBooking(s);
+  clockAt(s, 10, 50);
+  await scanToken(s, 'in', booking);
+  assert.equal((await s.get('/api/bookings/lookup?plate=MP09AB1234')).json.bookings.length, 1);
+  clockAt(s, 11, 30);
+  await scanToken(s, 'out', booking);
+
+  assert.equal((await s.get('/api/bookings/lookup?plate=MP09AB1234')).json.bookings.length, 0, 'a booking whose vehicle left is not listed as current');
+  assert.equal((await passInfo(s, pass)).json.gate.stage, 'left');
+  const again = await s.post('/api/bookings', car({ time: '12:00', hours: 1 })); // same vehicle number, later the same day
+  assert.equal(again.status, 201, again.text);
+  const reuse = await scanToken(s, 'in', booking);
+  assert.equal(reuse.json.outcome, 'already_left', 'the first booking cannot be entered again');
+});

@@ -36,6 +36,10 @@ const RECONCILE_TRIES = 5;
 
 const overlaps = (a, b) => a.startMs < b.endMs && b.startMs < a.endMs;
 
+// A vehicle that was scanned out before its booked end has left: its bay is free again from that moment, for anyone.
+// (A vehicle that leaves at or after the booked end changes nothing here: the booked time was all it held the bay for.)
+const leftEarly = (b) => Boolean(b.exitAt) && b.exitAt < b.endMs;
+
 function money(paise) {
   return '₹' + (paise % 100 ? (paise / 100).toFixed(2) : String(paise / 100));
 }
@@ -222,7 +226,7 @@ class BookingService {
   takenBays(vehicle, startMs, endMs, now, skip) {
     const taken = new Set();
     for (const b of this.store.bookings) {
-      if (b.vehicle !== vehicle || !this.isBlocking(b, now) || (skip && skip(b))) continue;
+      if (b.vehicle !== vehicle || !this.isBlocking(b, now) || leftEarly(b) || (skip && skip(b))) continue;
       if (b.startMs < endMs && startMs < b.endMs) taken.add(b.bay);
     }
     return taken;
@@ -232,7 +236,7 @@ class BookingService {
   findConflict(c, now) {
     let bayConflict = null;
     for (const b of this.store.bookings) {
-      if (b.id === c.id || !this.isBlocking(b, now) || !overlaps(b, c)) continue;
+      if (b.id === c.id || !this.isBlocking(b, now) || leftEarly(b) || !overlaps(b, c)) continue;
       if (b.plate === c.plate) return { kind: 'plate', booking: b };
       if (b.bay === c.bay) bayConflict = { kind: 'bay', booking: b };
     }
@@ -303,7 +307,7 @@ class BookingService {
     }
 
     // A vehicle can only be in one place at a time.
-    if (this.store.bookings.some((b) => b.status === 'paid' && b.plate === plate && overlaps(b, w))) {
+    if (this.store.bookings.some((b) => b.status === 'paid' && b.plate === plate && !leftEarly(b) && overlaps(b, w))) {
       throw new HttpError(409, 'plate_busy', 'This vehicle already has a booking that overlaps this time. Use “Find my booking” to see it.');
     }
 
@@ -655,7 +659,7 @@ class BookingService {
     const now = this.now();
     const off = this.config.utcOffsetMinutes;
     const list = this.store.bookings
-      .filter((b) => b.status === 'paid' && b.plate === plate && b.endMs > now)
+      .filter((b) => b.status === 'paid' && b.plate === plate && b.endMs > now && !b.exitAt)
       .sort((a, b) => a.startMs - b.startMs)
       .map((b) => ({
         ref: b.ref,
@@ -703,7 +707,7 @@ class BookingService {
       refundId: b.refundId || null,
       refundError: b.refundError || null,
       refundInterrupted: Boolean(b.refundInterrupted),
-      state: b.endMs <= now ? 'ended' : b.startMs <= now ? 'active' : 'upcoming',
+      state: b.endMs <= now || b.exitAt ? 'ended' : b.startMs <= now ? 'active' : 'upcoming',
       canCancel: this.canCancel(b, now),
       gate: gateState(b, now, this.config.gate),
     };
@@ -832,7 +836,7 @@ class BookingService {
       for (const b of paidToday) {
         if (b.vehicle !== v) continue;
         const i = S.parseBay(b.bay).n - 1;
-        if (b.startMs <= now && now < b.endMs) {
+        if (b.startMs <= now && now < b.endMs && !leftEarly(b)) {
           bays[i] = 'u';
           inUse += 1;
         } else if (b.startMs > now) {
@@ -952,8 +956,8 @@ class BookingService {
       if (when === 'today') return S.lotDateString(b.startMs, off) === today;
       if (b.status !== 'paid') return false;
       if (when === 'upcoming') return b.startMs > now;
-      if (when === 'active') return b.startMs <= now && now < b.endMs;
-      return b.endMs <= now; // ended
+      if (when === 'active') return b.startMs <= now && now < b.endMs && !b.exitAt;
+      return b.endMs <= now || Boolean(b.exitAt); // ended
     };
 
     let list = this.store.bookings.filter((b) => {
@@ -1123,7 +1127,7 @@ class BookingService {
       .sort((a, b) => b.startMs - a.startMs)
       .map((b) => {
         let state = 'cancelled';
-        if (b.status === 'paid') state = b.endMs <= now ? 'completed' : b.startMs <= now ? 'active' : 'upcoming';
+        if (b.status === 'paid') state = b.endMs <= now || b.exitAt ? 'completed' : b.startMs <= now ? 'active' : 'upcoming';
         else if (b.status !== 'cancelled') state = 'refunded';
         return {
           ref: b.ref,
