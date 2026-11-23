@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 
 const { makeSite, pay, sign, car, bike, MINUTE, webhookEvent, signedWebhook, bookAndPay } = require('./helpers');
 const roles = require('../src/roles');
+const S = require('../public/js/shared.js');
 const { Store } = require('../src/store');
 const { overstayFor, stageOf, extractToken } = require('../src/gate');
 const jsQR = require('../public/js/vendor/jsQR.js');
@@ -784,4 +785,86 @@ test('the pass shows each stage of the visit', async (t) => {
   assert.equal(await stage(), 'overstaying');
   await scanToken(s, 'out', booking);
   assert.equal(await stage(), 'payment_due');
+});
+
+// ===== An ordinary phone camera ======================================================================
+// Scanning an entry or exit QR code with a normal camera opens /scan?t=... It shows where the bay is and nothing else.
+
+test('a normal camera scan shows the parking type, the level or zone and the lot number, and nothing else', async (t) => {
+  const s = await site(t, { env: OP });
+  const a = await paidBooking(s, { zone: 2 }, 'pay_spot_a');
+  const b = await paidBooking(s, { vehicle: 'bike', zone: 1, plate: 'MP09CD5678' }, 'pay_spot_b');
+  const cases = [
+    [a, /C101/, /4-wheeler/, /Level 3/, />Level</],
+    [b, /B051/, /2-wheeler/, /Zone B/, />Zone</],
+  ];
+  for (const [x, bay, kind, zone, label] of cases) {
+    for (const k of ['in', 'out']) {
+      const r = await s.get('/scan?t=' + tokenOf(s, k, x.booking), { headers: HTML_ASK }); // no sign-in
+      assert.equal(r.status, 200, r.text);
+      for (const re of [bay, kind, zone, label]) assert.match(r.text, re);
+      assert.doesNotMatch(r.text, /\{\{/);
+      assert.match(r.text, /noindex/);
+      assert.equal(r.headers.get('cache-control'), 'no-store');
+      // nothing that identifies the booking or the customer, and nothing about money or time
+      for (const secret of [x.ref, x.booking.id, x.booking.plate, S.formatPlate(x.booking.plate), x.booking.name, x.booking.email, x.booking.phone]) {
+        if (secret) assert.ok(!r.text.includes(String(secret)), `the page must not contain ${secret}`);
+      }
+      assert.doesNotMatch(r.text, /Booking reference|₹|rupee|pay_|order_|11:00|13:00|Scan entry and exit/i);
+    }
+  }
+  assert.equal(a.booking.entryAt, undefined, 'opening the page records nothing');
+  assert.equal(a.booking.exitScanAt, undefined);
+});
+
+test('a forged, wrong-kind or cancelled QR code shows no bay at all', async (t) => {
+  const s = await site(t, { env: OP });
+  const a = await paidBooking(s, { zone: 2 }, 'pay_spot_c');
+  const good = tokenOf(s, 'in', a.booking);
+  const forged = good.slice(0, -1) + (good.endsWith('A') ? 'B' : 'A');
+  for (const bad of [forged, 'in.ZZZZZZ.' + good.split('.')[2], tokenOf(s, 'pass', a.booking), 'garbage', '']) {
+    const r = await s.get('/scan?t=' + encodeURIComponent(bad), { headers: HTML_ASK, redirect: 'manual' });
+    if (bad === '') {
+      assert.equal(r.status, 302, 'no token at all is the admin scanner: it asks for a sign-in');
+      continue;
+    }
+    assert.equal(r.status, 404, bad);
+    assert.match(r.text, /not active/);
+    assert.doesNotMatch(r.text, /C101|Level 3|4-wheeler/);
+  }
+  const admin = cookieOf(await s.post('/api/auth/login', { identifier: 'operator', password: OP.OPERATOR_PASSWORD }));
+  const cancel = await s.post(`/api/dashboard/bookings/${a.ref}/cancel`, {}, as(admin));
+  assert.equal(cancel.status, 200, cancel.text);
+  const r = await s.get('/scan?t=' + good, { headers: HTML_ASK });
+  assert.equal(r.status, 404);
+  assert.doesNotMatch(r.text, /C101|Level 3/);
+});
+
+test('a signed-in customer sees the lot details too, and the signed-in admin still gets the scanner', async (t) => {
+  const s = await site(t, { env: OP });
+  const a = await paidBooking(s, { zone: 2 }, 'pay_spot_d');
+  const token = tokenOf(s, 'in', a.booking);
+  const customer = cookieOf(await s.post('/api/auth/signup', { name: 'Asha Verma', email: 'asha.verma@example.com', password: 'a-good-password' }));
+  const asCustomer = await s.get('/scan?t=' + token, { headers: { cookie: customer, ...HTML_ASK } });
+  assert.equal(asCustomer.status, 200);
+  assert.match(asCustomer.text, /C101/);
+  assert.doesNotMatch(asCustomer.text, /Staff only/);
+
+  const admin = cookieOf(await s.post('/api/auth/login', { identifier: 'operator', password: OP.OPERATOR_PASSWORD }));
+  const asAdmin = await s.get('/scan?t=' + token, { headers: { cookie: admin, ...HTML_ASK } });
+  assert.equal(asAdmin.status, 200);
+  assert.match(asAdmin.text, /Scan entry and exit/, 'the admin gets the scanner page, which records the scan');
+  assert.doesNotMatch(asAdmin.text, /Where to park/);
+  assert.equal(a.booking.entryAt, undefined, 'the page view alone records nothing; the scanner page posts the scan');
+  const scanned = await s.post(SCAN, { token }, as(admin));
+  assert.equal(scanned.status, 200, scanned.text);
+});
+
+test('the lot-details page is rate limited per visitor', async (t) => {
+  const s = await site(t, { env: OP });
+  const a = await paidBooking(s, {}, 'pay_spot_e');
+  const token = tokenOf(s, 'in', a.booking);
+  let last;
+  for (let i = 0; i < 62; i++) last = await s.get('/scan?t=' + token, { headers: HTML_ASK });
+  assert.equal(last.status, 429);
 });

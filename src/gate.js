@@ -10,6 +10,7 @@
  *
  * Only the admin (permission gate:scan) can scan. Scanning needs a signed-in phone or computer; the QR codes themselves
  * hold nothing but a signed reference, so a copy of one is useless without the booking's current state.
+ * Anyone else who scans one with an ordinary phone camera sees only the lot details of the booked bay (spotFor below).
  *
  * A QR code is the address /scan?t=<token>. The token is "<kind>.<reference>.<signature>" where kind is in, out or pass.
  * The signature is an HMAC made with the site's secret (see auth.signFor), so nothing secret is stored for each booking and
@@ -234,6 +235,23 @@ class Gate {
     if (booking.status !== 'paid') throw new HttpError(404, 'not_found', 'This booking has no QR codes.');
     const url = `${origin}/scan?t=${this.tokenFor(kind, booking)}`;
     return qrSvg(url, kind === 'in' ? 'Entry QR code' : 'Exit QR code');
+  }
+
+  // ---- An ordinary phone camera ---------------------------------------------------------------------------------
+  // Anyone who points a normal camera at an entry or exit QR code opens /scan?t=... Unless they are signed in as the
+  // admin, they see only where the booked bay is: the kind of parking, the level or zone, and the lot (bay) number.
+  // Never the booking reference, the vehicle number, the name, the times or anything about money. A QR code that is
+  // forged, or whose booking is not paid any more (cancelled, refunded), shows nothing and returns null.
+  spotFor(token) {
+    let booking;
+    try {
+      booking = this.parse(String(token || '').trim(), ['in', 'out']).booking;
+    } catch (err) {
+      return null;
+    }
+    if (booking.status !== 'paid') return null;
+    const lot = LOT[booking.vehicle];
+    return { parking: lot.label, zone: lot.zones[S.parseBay(booking.bay).zone], bay: booking.bay };
   }
 
   // ---- Scanning (admin) ---------------------------------------------------------------------------------------

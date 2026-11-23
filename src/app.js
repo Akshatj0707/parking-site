@@ -120,7 +120,7 @@ function chatPrivacy(config) {
 function createPageRenderer(config, now) {
   const read = (file) => fs.readFileSync(path.join(PUBLIC_DIR, file), 'utf8');
   const fill = (html, tokens) => html.replace(/\{\{([A-Z_]+)\}\}/g, (whole, key) => (key in tokens ? tokens[key] : whole));
-  return (file, legal = null) => {
+  return (file, legal = null, extra = null) => {
     const car = S.LOT.car;
     const bike = S.LOT.bike;
     const week = describeWeek(config);
@@ -153,6 +153,7 @@ function createPageRenderer(config, now) {
       HOLD_MINUTES: String(config.holdMinutes),
       MAX_ADVANCE_DAYS: String(config.maxAdvanceDays),
     };
+    if (extra) Object.assign(tokens, extra); // the caller escapes these
     if (legal) {
       tokens.PAGE_EYEBROW = escapeHtml(legal.eyebrow);
       tokens.PAGE_TITLE = escapeHtml(legal.title);
@@ -737,6 +738,38 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   );
 
   app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  // ---- What an ordinary phone camera shows ---------------------------------------------------------
+  // The entry and exit QR codes hold the address /scan?t=... The admin's scanner page lives at /scan too, so a request that
+  // carries a QR token is split here: the signed-in admin goes on to the scanner (which records the scan), and everyone
+  // else, a customer or a passer-by with a normal camera, gets a plain page with the lot details only. No sign-in is asked.
+  const spotLimit = createLimiter({ windowMs: 60 * 1000, max: 60 });
+  const qrToken = (req) => (typeof req.query.t === 'string' ? req.query.t.trim() : '');
+  const forStaffScanner = (req, res, next) => {
+    const session = auth.current(req);
+    if (!qrToken(req) || (session && roles.can(session.role, 'gate:scan'))) return next('route');
+    return next();
+  };
+  app.get('/scan', forStaffScanner, spotLimit, (req, res) => {
+    const t = qrToken(req);
+    const spot = gate.spotFor(t);
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    if (!spot) {
+      const body = '<section class="gate-banner bad" role="status"><h2>This QR code is not active</h2><p>It is not valid, or the booking was cancelled. Please ask the parking staff for help.</p></section>';
+      return res.status(404).type('html').send(renderPage('spot.html', null, { SPOT_BODY: body, SPOT_STAFF_LINK: '' }));
+    }
+    const zoneLabel = /^level\b/i.test(spot.zone) ? 'Level' : 'Zone';
+    const body =
+      '<section class="pass-card" aria-label="Parking details">' +
+      '<div class="stack g8"><p class="hold-line">Lot number</p><p class="bay-big">' + escapeHtml(spot.bay) + '</p></div>' +
+      '<dl class="facts">' +
+      '<div><dt>Parking</dt><dd>' + escapeHtml(spot.parking) + '</dd></div>' +
+      '<div><dt>' + zoneLabel + '</dt><dd>' + escapeHtml(spot.zone) + '</dd></div>' +
+      '</dl></section>';
+    // The page itself carries nothing of the code (the booking reference is part of the token), so the staff link is plain.
+    const staffLink = '<p class="fine">Parking staff? <a href="/login?next=%2Fscan">Sign in to scan</a>.</p>';
+    return res.type('html').send(renderPage('spot.html', null, { SPOT_BODY: body, SPOT_STAFF_LINK: staffLink }));
+  });
 
   // ---- Pages and files ---------------------------------------------------------------------------
   for (const [route, file] of Object.entries(PAGES)) {
