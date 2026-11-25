@@ -204,6 +204,7 @@ const CASES = [
   ['how do I book a bay?', ['1. Choose car or two-wheeler', '10 minutes', 'booking reference'], ['/book?vehicle=car', '/book?vehicle=bike']],
   ['find my booking', ['Find my booking'], ['/lookup']],
   ['mp 09 ab 1234', ['MP 09 AB 1234'], ['/lookup?plate=MP09AB1234']],
+  ['22 bh 1234 aa', ['22 BH 1234 AA'], ['/lookup?plate=22BH1234AA']],
   ['how do I cancel my booking?', ['cancel your own booking on the website', 'full amount', 'help@bayfind.example', '+91 98765 43210', '5 to 10 working days'], ['/refunds', 'tel:+919876543210', 'mailto:help@bayfind.example']],
   ['I want a refund', ['full amount'], ['/refunds']],
   ['I was charged twice, what now', ['do not pay a second time'], ['/refunds']],

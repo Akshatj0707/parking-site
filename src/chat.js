@@ -326,12 +326,15 @@ const TOPICS = [
   ]],
 ];
 
-// "MP 09 AB 1234" anywhere in a message, as a normal vehicle number (or null).
+// "MP 09 AB 1234" or a Bharat series "22 BH 1234 AA" anywhere in a message, as a vehicle number (or null).
 function findPlate(text) {
-  const m = /\b([a-z]{2})[\s-]?(\d{1,2})[\s-]?([a-z]{0,3})[\s-]?(\d{4})\b/i.exec(text);
-  if (!m) return null;
-  const plate = S.normalizePlate(m.slice(1).join(''));
-  return S.isValidPlate(plate) ? plate : null;
+  for (const re of [/\b([a-z]{2})[\s-]?(\d{1,2})[\s-]?([a-z]{0,3})[\s-]?(\d{4})\b/i, /\b(\d{2})[\s-]?(bh)[\s-]?(\d{4})[\s-]?([a-z]{1,2})\b/i]) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const plate = S.normalizePlate(m.slice(1).join(''));
+    if (S.isValidPlate(plate)) return plate;
+  }
+  return null;
 }
 
 const WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4 };

@@ -863,6 +863,19 @@ test('the demo payment refuses unknown, malformed and real-Razorpay bookings', a
 
 // ===== Looking a booking up by vehicle number ============================================================
 
+test('a Bharat (BH) series number can be booked, found and scanned like any other', async (t) => {
+  const s = await site(t, { razorpayKeys: true });
+  const { created, paid } = await bookAndPay(s, car({ plate: '22 bh 1234 aa' }), 'pay_bh1');
+  assert.equal(created.status, 201, created.text);
+  assert.equal(paid.status, 200, paid.text);
+  assert.equal(paid.json.booking.plate, '22 BH 1234 AA');
+  assert.equal(s.store.bookings[0].plate, '22BH1234AA', 'stored without spaces');
+  const found = await s.get('/api/bookings/lookup?plate=' + encodeURIComponent('22-BH-1234-AA'));
+  assert.equal(found.json.bookings.length, 1);
+  const bad = await s.post('/api/bookings', car({ plate: '22 BH 1234 IA', time: '14:00' }));
+  assert.equal(bad.json.error, 'invalid_plate', 'the letter I is never used');
+});
+
 test('lookup finds a booking by vehicle number however it is typed and shows no money details', async (t) => {
   const s = await site(t);
   const { created } = await bookAndPay(s, car({ bay: 'C051', time: '11:00', hours: 2 }));

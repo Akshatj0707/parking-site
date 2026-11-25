@@ -111,7 +111,7 @@ If something goes wrong in between, the site handles it:
 - Starts on the hour or half hour, 1 to 4 hours long, up to 7 days ahead.
 - The price depends on the day the booking **starts** (weekday or weekend rate). A Friday evening booking that runs past midnight still uses the Friday rate.
 - All dates and times use one clock, India Standard Time by default, whatever the visitor's device says.
-- Vehicle numbers use the standard Indian format, for example `MP 09 AB 1234`, `KA 01 1234` or `DL1CAB1234`. Bharat (BH) series numbers are not supported.
+- Vehicle numbers use the standard Indian format, for example `MP 09 AB 1234`, `KA 01 1234` or `DL1CAB1234`, or the Bharat (BH) series, for example `22 BH 1234 AA`.
 
 ### The operator dashboard
 

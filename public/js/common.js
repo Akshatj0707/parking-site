@@ -160,7 +160,7 @@
   }
 
   // ---- The vehicle number box (used on the booking and lookup pages) ----------------------------------------
-  const EXAMPLE = 'For example MP 09 AB 1234';
+  const EXAMPLE = 'For example MP 09 AB 1234 or 22 BH 1234 AA';
   function plateField(input, help, onChange) {
     let touched = false;
     let last; // the value we last reported: undefined until the first report
