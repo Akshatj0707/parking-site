@@ -17,6 +17,12 @@
  *             A customer can never open the operator pages.
  *
  * A sign-in is a signed cookie (HttpOnly, SameSite=Lax, Secure on https). Passwords are kept only as scrypt hashes.
+ *
+ * A customer who forgot the password asks for a link by email (startReset). The link carries the account, an expiry and a
+ * signature over a fingerprint of the current password hash, so it works once: after the password has changed the
+ * fingerprint no longer matches. Setting a new password also signs the customer out everywhere else: every sign-in cookie
+ * carries the account's sign-in generation (sessionGen), and a reset raises it.
+ * The owner, the second admin and officials cannot use it: their passwords are changed by the owner or in the server settings.
  */
 
 const crypto = require('crypto');
@@ -224,6 +230,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   // Changing OPERATOR_PASSWORD signs every admin out: the cookie carries a fingerprint of the password it was made with.
   const passwordMark = () => crypto.createHmac('sha256', secret).update('pw|' + config.operator.password).digest('base64url').slice(0, 10);
   const failures = new HitCounter(15 * 60 * 1000, now);
+  const resetAsks = new HitCounter(60 * 60 * 1000, now); // reset emails asked for, per address
   let dummy = null; // a hash to check against when the email is unknown, so unknown and known emails take equally long
 
   // Changing an official's password signs that official out everywhere: the cookie carries a fingerprint of the password.
@@ -241,7 +248,8 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     let mark = null;
     if (session.role === 'admin' && !session.id) mark = passwordMark(); // the operator
     else if (session.role === 'admin' || session.role === 'official') mark = userMark(users.byId(session.id));
-    const payload = Buffer.from(JSON.stringify({ r: session.role, u: session.id || null, e: now() + seconds * 1000, p: mark })).toString('base64url');
+    const gen = (session.id && (users.byId(session.id) || {}).sessionGen) || 0;
+    const payload = Buffer.from(JSON.stringify({ r: session.role, u: session.id || null, e: now() + seconds * 1000, g: gen, p: mark })).toString('base64url');
     res.append('Set-Cookie', `${COOKIE}=${payload}.${sign(payload)}; ${cookieFlags(req, seconds)}`);
     req.bfSession = session;
     return session;
@@ -277,6 +285,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     } else if (data.r === 'customer' || data.r === 'official' || data.r === 'admin') {
       const user = typeof data.u === 'string' ? users.byId(data.u) : null;
       if (!user) return null; // an official or admin whose login was removed is signed out at once
+      if ((data.g || 0) !== (user.sessionGen || 0)) return null; // a sign-in from before the password was reset
       const role = roleOf(user);
       if (role !== data.r) return null;
       if (role !== 'customer' && data.p !== userMark(user)) return null;
@@ -397,6 +406,55 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     return officialRow(user);
   }
 
+  // ---- A forgotten password (customers only) ---------------------------------------------------------------------
+  const resetMs = () => config.auth.resetMinutes * 60 * 1000;
+  const resetFingerprint = (user) => crypto.createHash('sha256').update(String(user.pass)).digest('base64url').slice(0, 16);
+  const resetToken = (user) => {
+    const body = `${user.id}.${now() + resetMs()}`;
+    return `${body}.${signFor('reset', `${body}|${resetFingerprint(user)}`)}`;
+  };
+  const badLink = () => new HttpError(400, 'bad_reset_link', 'This link has expired or was already used. Ask for a new one.');
+
+  // The link token for an email, or null when no email should be sent: an address that is not valid, that has no customer
+  // account, or that has already asked three times in the last hour. The caller answers the same words either way, so the page
+  // never tells a stranger which emails have accounts.
+  function startReset(emailInput) {
+    const email = normalizeEmail(emailInput);
+    if (!email) return null;
+    const user = users.byEmail(email);
+    if (!user || roleOf(user) !== 'customer') return null;
+    const asked = resetAsks.current('reset|' + email);
+    if (asked && asked.count >= 3) return null;
+    resetAsks.hit('reset|' + email);
+    return { user, token: resetToken(user), minutes: config.auth.resetMinutes };
+  }
+
+  function userForReset(token) {
+    const parts = typeof token === 'string' && token.length < 200 ? token.split('.') : [];
+    if (parts.length !== 3 || !USER_ID.test(parts[0]) || !/^\d{10,16}$/.test(parts[1])) throw badLink();
+    const user = users.byId(parts[0]);
+    if (!user || roleOf(user) !== 'customer') throw badLink();
+    const given = Buffer.from(parts[2]);
+    const want = Buffer.from(signFor('reset', `${parts[0]}.${parts[1]}|${resetFingerprint(user)}`));
+    if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) throw badLink();
+    if (Number(parts[1]) <= now()) throw badLink();
+    return user;
+  }
+
+  // Sets the new password, signs the customer out on every other device, and signs them in here.
+  async function resetPassword(token, password, req, res) {
+    const user = userForReset(token);
+    const hash = await hashPassword(cleanPassword(password, user.email));
+    const before = user.pass;
+    userForReset(token); // checked again after the slow hash: two quick uses of one link must not both work
+    if (user.pass !== before) throw badLink();
+    user.pass = hash;
+    user.sessionGen = (user.sessionGen || 0) + 1; // every earlier sign-in stops working
+    await keep();
+    log.info(`The customer ${user.email} set a new password with an emailed link and was signed out on other devices.`);
+    return start(req, res, { role: 'customer', id: user.id, name: user.name, email: user.email });
+  }
+
   function seedTestCustomer() {
     if (users.byEmail(TEST_CUSTOMER.email)) return;
     users.add({ id: 'usr_' + crypto.randomBytes(6).toString('hex'), role: 'customer', name: TEST_CUSTOMER.name, email: TEST_CUSTOMER.email, pass: hashPasswordSync(TEST_CUSTOMER.password), createdAt: now() });
@@ -465,7 +523,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   if (config.auth.seedTestCustomer) seedTestCustomer();
   seedExtraAdmin();
 
-  return { users, current, publicUser, signup, login, logout: end, officials, addOfficial, setOfficialPassword, removeOfficial, signFor, TEST_CUSTOMER, USER_ID };
+  return { users, current, publicUser, signup, login, logout: end, startReset, resetPassword, officials, addOfficial, setOfficialPassword, removeOfficial, signFor, TEST_CUSTOMER, USER_ID };
 }
 
 module.exports = { createAuth, UserStore, hashPassword, checkPassword, normalizeEmail, TEST_CUSTOMER, USER_ID, COOKIE };

@@ -13,9 +13,10 @@ const { verifyWebhookSignature } = require('./payments');
 const { RENDER_DISK_PATH } = require('./config');
 const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
-const { createAuth } = require('./auth');
+const { createAuth, normalizeEmail } = require('./auth');
 const { createGate } = require('./gate');
-const { createMailer, cancellationEmail, customerCancelEmail, maskEmail } = require('./mail');
+const { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, maskEmail } = require('./mail');
+const { createReminders } = require('./reminders');
 const roles = require('./roles');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -35,6 +36,8 @@ const PAGES = {
   '/login': 'auth.html',
   '/signup': 'auth.html',
   '/account': 'auth.html',
+  '/forgot-password': 'auth.html',
+  '/reset-password': 'auth.html',
 };
 // Pages for the staff: the owner (admin) and government officials. The Officials page is for the owner alone.
 const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers', '/officials', '/scan']);
@@ -248,12 +251,15 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   bookings.overstayWebhook = (payment) => gate.handleWebhook(payment);
   bookings.overstayReconcile = () => gate.reconcile();
   const mailer = createMailer({ config, log, ...mailOptions });
+  const reminders = createReminders({ config, bookings, gate, auth, mailer, log, now });
   const renderPage = createPageRenderer(config, now);
   const app = express();
   app.locals.bookings = bookings;
   app.locals.chat = chat;
   app.locals.auth = auth;
   app.locals.gate = gate;
+  app.locals.reminders = reminders;
+  app.locals.mailer = mailer;
   app.disable('x-powered-by');
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
   app.use(securityHeaders(config));
@@ -318,6 +324,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
         loginRequired: config.auth.customerLoginRequired,
         // false on a host that forgets its files at every restart: accounts and bookings are then lost with them
         persistent: config.dataOnRenderDisk !== false,
+        passwordReset: mailer.enabled, // a customer can get a link to choose a new password by email
         testCustomer: config.auth.seedTestCustomer ? { email: auth.TEST_CUSTOMER.email, password: auth.TEST_CUSTOMER.password } : null,
       },
     });
@@ -490,6 +497,47 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     wrap(async (req, res) => {
       const session = await auth.login(req.body, req, res);
       res.json({ user: auth.publicUser(session), next: session.role === 'admin' || session.role === 'official' ? '/dashboard' : '/account' });
+    })
+  );
+
+  // A customer who forgot the password asks for a link by email. The answer is the same for every address, so nobody can use this
+  // to find out which emails have accounts. The link carries the site's own address (PUBLIC_URL, or the address of a local
+  // computer), never one taken from the request, so a forged Host header cannot send the link to another site.
+  const forgotLimit = createLimiter({ windowMs: 15 * 60 * 1000, max: 10, message: 'Too many requests from this connection. Please try again in a few minutes.' });
+  const resetLimit = createLimiter({ windowMs: 15 * 60 * 1000, max: 15, message: 'Too many attempts from this connection. Please try again in a few minutes.' });
+  const resetOrigin = (req) => config.gate.publicUrl || (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(req.hostname) ? `${req.protocol}://${req.get('host')}` : '');
+
+  app.post(
+    '/api/auth/forgot',
+    ownPagesOnly,
+    forgotLimit,
+    wrap(async (req, res) => {
+      if (!mailer.enabled) throw new HttpError(503, 'email_not_set_up', `A new password cannot be sent by email on this site yet. ${config.supportEmail ? 'Please write to ' + config.supportEmail + '.' : 'Please contact the parking owner.'}`);
+      const origin = resetOrigin(req);
+      if (!origin) throw new HttpError(503, 'site_address_unknown', 'A new password cannot be sent by email until the site address is set (PUBLIC_URL). Please contact the parking owner.');
+      const raw = req.body && req.body.email;
+      if (!normalizeEmail(raw)) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
+      const found = auth.startReset(raw);
+      if (found) {
+        // sent in the background, so the answer takes the same time whether or not the address has an account
+        const link = `${origin}/reset-password?t=${encodeURIComponent(found.token)}`;
+        mailer
+          .send({ to: found.user.email, ...passwordResetEmail({ siteName: config.siteName, supportEmail: config.supportEmail, name: found.user.name, link, minutes: found.minutes }) })
+          .then((sent) => sent.status !== 'sent' && log.warn(`A password reset email could not be sent (${sent.reason || sent.status}).`))
+          .catch((err) => log.warn(`A password reset email could not be sent: ${err.message}`));
+      }
+      res.json({ ok: true, minutes: config.auth.resetMinutes, message: `If there is a customer account for that email, a link to choose a new password is on its way. It works for ${config.auth.resetMinutes} minutes and only once.` });
+    })
+  );
+
+  app.post(
+    '/api/auth/reset',
+    ownPagesOnly,
+    resetLimit,
+    wrap(async (req, res) => {
+      const b = req.body && typeof req.body === 'object' ? req.body : {};
+      const session = await auth.resetPassword(String(b.t || ''), b.password, req, res);
+      res.json({ user: auth.publicUser(session), next: '/account' });
     })
   );
 
@@ -850,7 +898,8 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     const gate = ADMIN_PAGES.has(route) ? [operatorGate] : [];
     if (OWNER_PAGES[route]) gate.push(ownerOnlyPage(OWNER_PAGES[route]));
     app.get(route, ...gate, (req, res) => {
-      res.set('Cache-Control', 'no-cache');
+      res.set('Cache-Control', route === '/reset-password' ? 'no-store' : 'no-cache');
+      if (route === '/reset-password') res.set('Referrer-Policy', 'no-referrer'); // the link carries the secret
       res.type('html').send(renderPage(file));
     });
   }

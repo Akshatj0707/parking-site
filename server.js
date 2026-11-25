@@ -141,6 +141,10 @@ async function main() {
   setInterval(() => {
     bookings.reconcile().catch((err) => log.error('Checking for unconfirmed payments failed:', err.message));
   }, 60 * 1000).unref();
+  // Once a minute: "your parking ends soon" emails to parked customers (does nothing without email set up).
+  setInterval(() => {
+    app.locals.reminders.run().catch((err) => log.error('Sending parking reminders failed:', err.message));
+  }, 60 * 1000).unref();
 
   // ---- 5. Stop cleanly (Ctrl+C, or "stop" from the hosting service). With files every change is saved at once. With a
   // database the last changes are handed over first. Requests that are already running get up to 10 seconds to finish,

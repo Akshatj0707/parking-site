@@ -141,6 +141,8 @@ function loadConfig(env = process.env) {
       customerLoginRequired: !isOff(env.CUSTOMER_LOGIN_REQUIRED),
       // Signs the sign-in cookies. Optional: when empty, a random key is kept next to the bookings.
       sessionSecret: String(env.SESSION_SECRET || '').trim(),
+      // How long the link in a "forgot my password" email works (it also stops working once it has been used).
+      resetMinutes: Math.max(5, Math.min(240, Math.floor(number(env.RESET_LINK_MINUTES, 30)))),
       // For trying the site on your own computer: SEED_TEST_CUSTOMER=on creates a customer with a published password. It is
       // never created when Razorpay keys are set (a real site), and it is off unless asked for.
       seedTestCustomer: !(keyId && keySecret) && isOn(env.SEED_TEST_CUSTOMER),
@@ -189,6 +191,8 @@ function loadConfig(env = process.env) {
       graceMinutes: number(env.CANCEL_GRACE_MINUTES, 10),
       lateRefundPercent: Math.min(100, Math.floor(number(env.CANCEL_LATE_REFUND_PERCENT, 50))),
     },
+    // One email to a parked customer this many minutes before the booked end (src/reminders.js). 0 turns it off.
+    reminder: { minutes: Math.max(0, Math.min(120, Math.floor(number(env.END_REMINDER_MINUTES, 15)))) },
     // A customer who is parked adding more hours to a booking before it ends (src/gate.js, startExtension).
     extend: {
       maxHours: Math.max(1, Math.floor(number(env.EXTEND_MAX_HOURS, 4, { min: 1 }))), // at most this many hours at a time

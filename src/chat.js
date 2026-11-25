@@ -574,7 +574,9 @@ function answerAccount(u, ctx) {
         ? 'Customers sign in, or create a free account with a name, an email and a password, before booking. After that, My bookings shows every booking you made.'
         : 'You can book without an account, but with a free account (a name, an email and a password) My bookings shows every booking you made.',
       'The lot operator signs in on the same Sign in page with the operator user name; that gives the dashboard and the analytics. A customer account cannot open those pages.',
-      'If you forgot your password, please contact the lot: nobody who runs the site can see your password.'
+      config.email && config.email.enabled
+        ? 'If you forgot your password, open Sign in and press “Forgot your password?”: we email a link that lets you choose a new one. It works for a short time and only once.'
+        : 'If you forgot your password, please contact the lot: nobody who runs the site can see your password.'
     ),
     keys: ['login', 'signup', 'account'],
   };

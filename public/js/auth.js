@@ -67,7 +67,70 @@
           h('button', { class: 'btn btn-outline btn-sm', type: 'button', onclick: () => { id.input.value = test.email; pw.input.value = test.password; pw.input.focus(); } }, 'Fill it in'))
       );
     }
+    if (cfg.auth && cfg.auth.passwordReset) kids.push(h('p', { class: 'fine' }, h('a', { href: '/forgot-password' }, 'Forgot your password?')));
     kids.push(h('p', { class: 'fine' }, 'New here? ', h('a', { href: '/signup' + location.search }, 'Create an account'), '.'));
+    root.replaceChildren(...kids);
+  }
+
+  // ---- Forgot password: ask for the link ---------------------------------------------------------------------
+  async function forgotView(cfg, user) {
+    document.title = 'Forgot password · ' + cfg.siteName;
+    if (user) return alreadyIn(user);
+    const email = field('email', 'Your email', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', maxlength: '120' });
+    const message = h('div', { 'aria-live': 'polite' });
+    const go = h('button', { class: 'btn btn-navy btn-tall', type: 'submit' }, 'Email me a link');
+    const form = h('form', { class: 'panel rise d2', novalidate: true }, email.node, message, go);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!email.input.value.trim()) return show(message, 'Enter the email you signed up with.');
+      go.disabled = true;
+      show(message, '');
+      try {
+        const done = await post('/api/auth/forgot', { email: email.input.value });
+        show(message, done.message, 'ok');
+        email.input.disabled = true; // the same words are shown for every address, so there is nothing more to do here
+        go.textContent = 'Link sent';
+      } catch (err) {
+        go.disabled = false;
+        show(message, err.message);
+      }
+    });
+    const kids = formShell({ eyebrow: 'Forgot password', title: 'Forgot your password?', lead: 'Enter the email you signed up with. We will send you a link to choose a new password. This is for customer accounts. The owner and government officials change passwords with the owner.' });
+    kids.push(form, h('p', { class: 'fine' }, h('a', { href: '/login' }, 'Back to sign in')));
+    root.replaceChildren(...kids);
+  }
+
+  // ---- Forgot password: the page the emailed link opens ---------------------------------------------------------
+  async function resetView(cfg) {
+    document.title = 'New password · ' + cfg.siteName;
+    const token = new URLSearchParams(location.search).get('t') || '';
+    const kids = formShell({ eyebrow: 'New password', title: 'Choose a new password', lead: 'Pick a password of at least 8 characters. You will be signed in, and signed out everywhere else.' });
+    if (!token) {
+      kids.push(h('p', { class: 'msg err', role: 'alert' }, 'This link is not complete. Open the link from the email again, or ask for a new one.'), h('p', { class: 'fine' }, h('a', { href: '/forgot-password' }, 'Ask for a new link')));
+      return root.replaceChildren(...kids);
+    }
+    const pw = field('password', 'New password', { type: 'password', autocomplete: 'new-password', minlength: '8', maxlength: '100' }, 'At least 8 characters.');
+    const again = field('again', 'New password again', { type: 'password', autocomplete: 'new-password', minlength: '8', maxlength: '100' });
+    const message = h('div', { 'aria-live': 'polite' });
+    const go = h('button', { class: 'btn btn-navy btn-tall', type: 'submit' }, 'Save password and sign in');
+    const form = h('form', { class: 'panel rise d2', novalidate: true }, pw.node, again.node, message, go);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (pw.input.value.length < 8) return show(message, 'Choose a password of at least 8 characters.');
+      if (pw.input.value !== again.input.value) return show(message, 'The two passwords are not the same.');
+      go.disabled = true;
+      show(message, '');
+      try {
+        const done = await post('/api/auth/reset', { t: token, password: pw.input.value });
+        await refreshSession();
+        location.assign(done.next);
+      } catch (err) {
+        go.disabled = false;
+        show(message, err.message);
+        if (err.code === 'bad_reset_link') message.append(h('p', { class: 'fine' }, h('a', { href: '/forgot-password' }, 'Ask for a new link')));
+      }
+    });
+    kids.push(form);
     root.replaceChildren(...kids);
   }
 
@@ -212,6 +275,8 @@
     try {
       const [cfg, user] = await Promise.all([getConfig(), session()]);
       if (view === '/signup') await signupView(cfg, user);
+      else if (view === '/forgot-password') await forgotView(cfg, user);
+      else if (view === '/reset-password') await resetView(cfg);
       else if (view === '/account') await accountView(cfg, user);
       else await loginView(cfg, user);
     } catch (err) {

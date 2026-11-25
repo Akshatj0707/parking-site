@@ -171,7 +171,7 @@ test('the privacy policy says what is kept, who else sees it, and that the vehic
   const site = await makeSite();
   t.after(() => site.close());
   const { text } = await site.get('/privacy');
-  for (const expected of ['vehicle number', 'Razorpay', 'Anyone who knows your vehicle number', 'does not set cookies', 'does not ask for your name, phone number or email', 'about a day', 'HTTPS', 'We do not sell your information']) {
+  for (const expected of ['vehicle number', 'Razorpay', 'Anyone who knows your vehicle number', 'sets one cookie, and only when you sign in', 'does not ask for your phone number', 'Emails we send', 'about a day', 'HTTPS', 'We do not sell your information']) {
     assert.ok(text.includes(expected), `the privacy policy should say "${expected}"`);
   }
 });
