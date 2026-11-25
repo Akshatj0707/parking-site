@@ -33,6 +33,10 @@
 .pay-box { background: #fff4cc; border: 2px solid #f5cf5a; border-radius: 20px; padding: 22px; display: flex; flex-direction: column; gap: 12px; color: #5b3d00; }
 .pay-box .pay-amount { color: var(--navy); font-size: 48px; }
 .pay-box .btn { align-self: stretch; }
+.pay-box.extend-box { background: #eaf0ff; border-color: #a5b4fc; color: var(--navy); }
+.ext-options { display: flex; flex-wrap: wrap; gap: 10px; }
+.pay-box .ext-options .btn { align-self: auto; flex: 1 1 120px; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.15; }
+.ext-options .ext-p { font-weight: 500; opacity: 0.85; }
 
 .steps { counter-reset: step; display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .steps li { counter-increment: step; position: relative; padding-left: 44px; min-height: 30px; font-size: 16px; line-height: 1.45; }

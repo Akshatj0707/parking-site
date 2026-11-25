@@ -24,10 +24,10 @@
 
   function statusOf(r) {
     if (r.status === 'paid') return [r.state === 'active' ? 'Paid, parked now' : r.state === 'ended' ? 'Paid, over' : 'Paid, coming up', 'paid'];
-    if (r.status === 'refunded') return [r.cancelledByOperator ? 'Cancelled, refunded' : 'Refunded', 'refunded'];
+    if (r.status === 'refunded') return [r.cancelledByCustomer ? (r.refundPercent !== null && r.refundPercent < 100 ? `Customer cancelled, ${r.refundPercent}% refunded` : 'Customer cancelled, refunded') : r.cancelledByOperator ? 'Cancelled, refunded' : 'Refunded', 'refunded'];
     if (r.status === 'refund_pending') return ['Refund sending', 'refund_pending'];
     if (r.status === 'refund_failed') return ['Refund failed', 'refund_failed'];
-    if (r.status === 'cancelled') return [r.cancelledByOperator ? 'Cancelled by admin' : 'Not paid', 'cancelled'];
+    if (r.status === 'cancelled') return [r.cancelledByCustomer ? 'Cancelled by customer' : r.cancelledByOperator ? 'Cancelled by admin' : 'Not paid', 'cancelled'];
     return ['Waiting for payment', 'cancelled'];
   }
 

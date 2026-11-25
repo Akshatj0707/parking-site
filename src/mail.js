@@ -1,8 +1,8 @@
 'use strict';
 
 /*
- * Email to customers. Today it sends one kind of message: "your booking was cancelled" (with the refund), when the admin
- * cancels a paid booking. It talks to an email service over HTTPS (Brevo or Resend), not over SMTP, because free hosts
+ * Email to customers. It sends two kinds of message: "your booking was cancelled" (with the refund), when the admin
+ * cancels a paid booking, and "you cancelled your booking" with what comes back, when the customer cancels it themselves. It talks to an email service over HTTPS (Brevo or Resend), not over SMTP, because free hosts
  * such as Render's free size block the SMTP ports. Nothing here can break a cancellation: send() never throws, and the
  * route that cancels reports in plain words whether the email went.
  *
@@ -127,4 +127,41 @@ function cancellationEmail({ siteName, supportEmail, name, row, amountText, refu
   return { subject, text, html };
 }
 
-module.exports = { createMailer, cancellationEmail, maskEmail, PROVIDERS };
+// The message to a customer who cancelled their own booking. `refundText` says what happens to the money, in a sentence.
+function customerCancelEmail({ siteName, supportEmail, name, row, amountText, refundText }) {
+  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+  const lines = [
+    `Hello ${first},`,
+    '',
+    `You cancelled your booking ${row.ref} at ${siteName}. The bay is free again.`,
+    '',
+    'Your booking:',
+    `  Reference: ${row.ref}`,
+    `  Vehicle:   ${row.vehicleLabel}, ${row.plate}`,
+    `  Bay:       ${row.bay} (${row.zone})`,
+    `  Time:      ${row.window}`,
+    `  Paid:      ${amountText}`,
+    '',
+    refundText,
+  ];
+  if (supportEmail) lines.push('', `Questions? Write to ${supportEmail} and quote ${row.ref}.`);
+  lines.push('', `${siteName}`);
+  const li = (label, value) => `<tr><td style="padding:2px 12px 2px 0;color:#555">${label}</td><td style="padding:2px 0"><b>${escapeHtml(value)}</b></td></tr>`;
+  const html =
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:34rem">' +
+    `<p>Hello ${escapeHtml(first)},</p>` +
+    `<p>You cancelled your booking <b>${escapeHtml(row.ref)}</b> at ${escapeHtml(siteName)}. The bay is free again.</p>` +
+    '<table style="border-collapse:collapse;margin:12px 0">' +
+    li('Reference', row.ref) +
+    li('Vehicle', `${row.vehicleLabel}, ${row.plate}`) +
+    li('Bay', `${row.bay} (${row.zone})`) +
+    li('Time', row.window) +
+    li('Paid', amountText) +
+    '</table>' +
+    `<p>${escapeHtml(refundText)}</p>` +
+    (supportEmail ? `<p>Questions? Write to ${escapeHtml(supportEmail)} and quote ${escapeHtml(row.ref)}.</p>` : '') +
+    `<p>${escapeHtml(siteName)}</p></div>`;
+  return { subject: `You cancelled your parking booking ${row.ref}`, text: lines.join('\n'), html };
+}
+
+module.exports = { createMailer, cancellationEmail, customerCancelEmail, maskEmail, PROVIDERS };

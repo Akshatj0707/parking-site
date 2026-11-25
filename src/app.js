@@ -15,7 +15,7 @@ const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
 const { createAuth } = require('./auth');
 const { createGate } = require('./gate');
-const { createMailer, cancellationEmail, maskEmail } = require('./mail');
+const { createMailer, cancellationEmail, customerCancelEmail, maskEmail } = require('./mail');
 const roles = require('./roles');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -151,6 +151,11 @@ function createPageRenderer(config, now) {
       HOURS_MIN: String(config.hoursOptions[0]),
       HOURS_MAX: String(config.hoursOptions[config.hoursOptions.length - 1]),
       HOLD_MINUTES: String(config.holdMinutes),
+      CANCEL_FREE_HOURS: String(config.cancel.freeHours),
+      CANCEL_GRACE_MINUTES: String(config.cancel.graceMinutes),
+      CANCEL_LATE_PERCENT: String(config.cancel.lateRefundPercent),
+      EXTEND_MAX_HOURS: String(config.extend.maxHours),
+      EXTEND_MAX_TOTAL_HOURS: String(config.extend.maxTotalHours),
       MAX_ADVANCE_DAYS: String(config.maxAdvanceDays),
     };
     if (extra) Object.assign(tokens, extra); // the caller escapes these
@@ -430,6 +435,36 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     })
   );
 
+  // More hours for a parked vehicle, before the booked end. The same three steps as paying for extra time: start, then verify
+  // (or the pretend "Pay" button on a developer's computer). A late payment is settled by the webhook or the once-a-minute check.
+  app.post(
+    '/api/pass/extend/start',
+    verifyLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.startExtension(req.body && req.body.t, req.body && req.body.hours));
+    })
+  );
+
+  const extensionReply = (result) => ({ status: result.outcome, booking: gate.summary(result.booking), gate: gate.state(result.booking), extend: gate.extendInfo(result.booking) });
+
+  app.post(
+    '/api/pass/extend/verify',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const result = await gate.verifyExtension(req.body);
+      res.json(extensionReply(result));
+    })
+  );
+
+  app.post(
+    '/api/pass/extend/demo-confirm',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const result = await gate.confirmDemoExtension(req.body && req.body.t);
+      res.json(extensionReply(result));
+    })
+  );
+
   // ---- Accounts: customers sign up and sign in; the operator signs in with the operator password -------------------
   const signInLimit = createLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many sign-in attempts. Please wait a minute and try again.' });
   const signUpLimit = createLimiter({ windowMs: 60 * 60 * 1000, max: 15, message: 'Too many accounts were created from this connection. Please try again later.' });
@@ -470,6 +505,27 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     if (session.role !== 'customer' || !roles.can(session.role, 'booking:view-own')) throw new HttpError(403, 'forbidden', 'Only customer accounts have bookings of their own. The owner and government officials see every booking under Bookings.');
     res.json({ bookings: bookings.forCustomer(session.id) });
   });
+
+  // A signed-in customer cancels their own booking before it starts. The refund follows the cancellation rule; `acceptRefund` is
+  // the amount (in rupees) the page showed, so a customer is never surprised by a lower refund than the one they agreed to.
+  const accountActionLimit = createLimiter({ windowMs: 60 * 1000, max: 20 });
+  app.post(
+    '/api/account/bookings/:ref/cancel',
+    ownPagesOnly,
+    accountActionLimit,
+    wrap(async (req, res) => {
+      const session = auth.current(req);
+      if (!session) throw new HttpError(401, 'login_required', 'Please sign in to cancel a booking.');
+      if (session.role !== 'customer' || !roles.can(session.role, 'booking:cancel-own')) throw new HttpError(403, 'forbidden', 'Only the customer who made a booking can cancel it here. The owner cancels bookings from the dashboard.');
+      const ref = String(req.params.ref).toUpperCase();
+      if (!/^[A-Z0-9]{6,12}$/.test(ref)) throw new HttpError(400, 'invalid_ref', 'That booking reference is not valid.');
+      const accepted = req.body && req.body.acceptRefund !== undefined && req.body.acceptRefund !== null && req.body.acceptRefund !== '' ? Number(req.body.acceptRefund) : NaN;
+      if (!Number.isFinite(accepted) || accepted < 0) throw new HttpError(400, 'invalid_refund', 'Confirm the refund amount that was shown to you.');
+      const { outcome, booking, quote, message } = await bookings.customerCancel(session.id, ref, Math.round(accepted * 100));
+      const email = await emailCustomerCancelled(session, booking, quote, outcome);
+      res.json({ ok: true, outcome, message: `${message}${email.note ? ' ' + email.note : ''}`, email: email.status, refundAmount: quote.refundPaise / 100, refundPercent: quote.percent });
+    })
+  );
 
   // ---- Operator area: protected by a user name and password ---------------------------------------
   const wrongPasswords = new HitCounter(60 * 1000, now);
@@ -716,6 +772,24 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     const sent = await mailer.send({ to: user.email, ...content });
     if (sent.status === 'sent') return { status: 'sent', note: `An email about it was sent to ${maskEmail(user.email)}.` };
     return { status: 'failed', note: `The email to ${maskEmail(user.email)} could not be sent (${sent.reason}). Tell the customer yourself.` };
+  }
+
+  // Tell a customer by email that the booking they cancelled is cancelled, and what comes back. Never fails the cancellation.
+  async function emailCustomerCancelled(user, booking, quote, outcome) {
+    if (!user || !user.email) return { status: 'no_email', note: '' };
+    if (!mailer.enabled) return { status: 'not_set_up', note: '' };
+    const money = (paise) => '₹' + (paise % 100 ? (paise / 100).toFixed(2) : String(paise / 100));
+    const refundText =
+      outcome === 'refunded'
+        ? `${money(quote.refundPaise)} (${quote.percent}% of what you paid) is being refunded to the payment method you used. It usually reaches you in 5 to 10 working days.${booking.refundId ? ` The refund number is ${booking.refundId}.` : ''}`
+        : outcome === 'refund_failed'
+          ? `The automatic refund of ${money(quote.refundPaise)} did not go through yet. The parking owner has been told and will send it again. You do not need to do anything.`
+          : quote.refundPaise > 0
+            ? 'The payment was only simulated, so nothing needs to be refunded.'
+            : 'Under the cancellation rule nothing is refunded this close to the start.';
+    const content = customerCancelEmail({ siteName: config.siteName, supportEmail: config.supportEmail, name: user.name, row: bookings.operatorRow(booking), amountText: money(booking.amountPaise), refundText });
+    const sent = await mailer.send({ to: user.email, ...content });
+    return sent.status === 'sent' ? { status: 'sent', note: `We also emailed it to ${maskEmail(user.email)}.` } : { status: 'failed', note: '' };
   }
 
   // Cancel a paid booking and refund it in full (or try a failed refund again).

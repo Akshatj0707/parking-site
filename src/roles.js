@@ -17,6 +17,7 @@
 const PERMISSIONS = {
   'booking:create': 'Book a parking bay',
   'booking:view-own': 'See their own bookings',
+  'booking:cancel-own': 'Cancel their own booking before it starts (the cancellation rule decides how much is refunded)',
   'bookings:view-all': 'See every booking, with payment details',
   'bookings:cancel-refund': 'Cancel a booking and refund the customer',
   'bookings:export': 'Download all bookings as a spreadsheet (CSV)',
@@ -32,8 +33,8 @@ const PERMISSIONS = {
 const ROLES = {
   customer: {
     label: 'Customer',
-    summary: 'Books a bay and sees only their own bookings.',
-    permissions: ['booking:create', 'booking:view-own'],
+    summary: 'Books a bay, sees only their own bookings and can cancel them before they start.',
+    permissions: ['booking:create', 'booking:view-own', 'booking:cancel-own'],
   },
   official: {
     label: 'Government official',

@@ -33,7 +33,7 @@ test('a customer can sign up, and is then signed in as a customer', async (t) =>
 
   const { r, cookie } = await signUp(site);
   assert.equal(r.status, 201);
-  assert.deepEqual(r.json.user, { role: 'customer', name: 'Asha Verma', email: 'asha.verma@example.com', permissions: ['booking:create', 'booking:view-own'] });
+  assert.deepEqual(r.json.user, { role: 'customer', name: 'Asha Verma', email: 'asha.verma@example.com', permissions: ['booking:create', 'booking:view-own', 'booking:cancel-own'] });
   assert.equal(r.json.next, '/account');
   const flags = r.headers.getSetCookie()[0];
   assert.match(flags, /HttpOnly/);

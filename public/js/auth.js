@@ -128,14 +128,60 @@
   const STAGE_TEXT = { inside: 'Parked', overstaying: 'Parked, over time', payment_due: 'Extra time to pay', left: 'Finished' };
   const STATE_CLASS = { upcoming: 'paid', active: 'paid', completed: 'cancelled', cancelled: 'cancelled', refunded: 'refunded' };
 
-  function bookingCard(b) {
+  // What the cancelled booking says about the money.
+  function cancelledLine(b) {
+    const who = b.cancelledBy === 'customer' ? 'You cancelled this booking.' : b.cancelledBy === 'operator' ? 'The parking owner cancelled this booking.' : '';
+    if (b.state === 'refunded' || b.refundPending) {
+      const part = b.refundAmount !== null && b.refundAmount !== undefined && b.refundAmount < b.amount ? ` ${rupees(b.refundAmount)} of ${rupees(b.amount)} was refunded.` : b.refundAmount ? ` ${rupees(b.refundAmount)} was refunded.` : ' The refund is on its way.';
+      return `${who}${part} It usually reaches you in 5 to 10 working days.`.trim();
+    }
+    return who;
+  }
+
+  // Cancelling asks first: the panel says what comes back, and only the second press cancels. The amount shown is sent along, so a
+  // refund that has changed in the meantime is never taken as agreed.
+  function cancelControl(b, reload) {
+    const box = h('div', { class: 'cancel-box' });
+    const q = b.cancel;
+    const show = (kids) => box.replaceChildren(...kids);
+    function ask() {
+      const full = q.refundPercent === 100;
+      const text = q.refundAmount > 0
+        ? `If you cancel now you get ${rupees(q.refundAmount)} back${full ? ' (everything you paid)' : ` (${q.refundPercent}% of ${rupees(b.amount)})`}.`
+        : 'If you cancel now nothing is refunded.';
+      const later = !full || q.rule.latePercent >= 100 ? '' : q.viaGrace && q.graceUntil ? ` This full refund is only for a few minutes after paying: after ${q.graceUntil} only ${q.rule.latePercent}% comes back.` : ` After ${q.freeUntil} only ${q.rule.latePercent}% comes back.`;
+      const yes = h('button', { class: 'btn btn-danger', type: 'button', onclick: confirmCancel }, 'Yes, cancel this booking');
+      const no = h('button', { class: 'btn btn-outline', type: 'button', onclick: idle }, 'Keep my booking');
+      show([h('div', { class: 'msg info', role: 'status' }, h('b', null, 'Cancel booking ' + b.ref + '? '), text + later), h('div', { class: 'row' }, yes, no)]);
+    }
+    async function confirmCancel(event) {
+      event.target.disabled = true;
+      try {
+        const r = await post('/api/account/bookings/' + encodeURIComponent(b.ref) + '/cancel', { acceptRefund: q.refundAmount });
+        box.replaceChildren(h('p', { class: 'msg ok', role: 'status' }, r.message));
+        setTimeout(reload, 2500);
+      } catch (err) {
+        show([h('p', { class: 'msg err', role: 'alert' }, err.message), h('div', { class: 'row' }, h('button', { class: 'btn btn-outline', type: 'button', onclick: reload }, 'Refresh my bookings'))]);
+      }
+    }
+    function idle() {
+      show([h('button', { class: 'btn btn-danger-outline', type: 'button', onclick: ask }, 'Cancel this booking')]);
+    }
+    idle();
+    return box;
+  }
+
+  function bookingCard(b, reload) {
     const open = b.pass && b.stage !== 'left' && b.stage !== 'unused' && b.stage !== 'void';
+    const cancelled = b.state === 'cancelled' || b.state === 'refunded';
     return h('li', { class: 'my-booking' },
       h('div', { class: 'my-booking-head' }, h('b', null, b.plate), h('span', { class: 'badge ' + (STATE_CLASS[b.state] || 'cancelled') }, STAGE_TEXT[b.stage] || STATE_TEXT[b.state] || b.state)),
       h('p', null, b.window),
-      h('p', { class: 'muted' }, `${b.vehicleLabel}, bay ${b.bay} (${b.zone}) · ${b.hours} h · ${rupees(b.amount)}`),
+      h('p', { class: 'muted' }, `${b.vehicleLabel}, bay ${b.bay} (${b.zone}) · ${b.hours} h · ${rupees(b.amount)}${b.extraTimeAmount ? ' (' + rupees(b.extraTimeAmount) + ' more for extra time)' : ''}`),
       h('p', { class: 'fine' }, 'Booking reference ', h('b', null, b.ref)),
-      open ? h('a', { class: 'btn btn-navy', href: b.pass }, 'Open entry and exit QR codes') : null);
+      cancelled && cancelledLine(b) ? h('p', { class: 'fine' }, cancelledLine(b)) : null,
+      open ? h('a', { class: 'btn btn-navy', href: b.pass }, b.stage === 'inside' ? 'Open QR codes or add more time' : 'Open entry and exit QR codes') : null,
+      b.cancel ? cancelControl(b, reload) : null);
   }
 
   async function accountView(cfg, user) {
@@ -148,15 +194,18 @@
       ...formShell({ eyebrow: 'My account', title: `Hello, ${user.name}`, lead: user.email }),
       h('div', { class: 'row' }, h('a', { class: 'btn btn-navy', href: '/book' }, 'Book a bay'), logout),
       h('section', { class: 'panel', 'aria-labelledby': 'mine-title' }, h('h2', { id: 'mine-title' }, 'My bookings'), list),
-      cfg.auth && cfg.auth.persistent === false ? h('p', { class: 'msg info' }, 'This is a test site. Accounts and bookings are cleared whenever the site restarts.') : null
+      ...(cfg.auth && cfg.auth.persistent === false ? [h('p', { class: 'msg info' }, 'This is a test site. Accounts and bookings are cleared whenever the site restarts.')] : [])
     );
-    try {
-      const data = await api('/api/account/bookings');
-      list.replaceChildren(...(data.bookings.length ? data.bookings.map(bookingCard) : [h('li', { class: 'muted' }, 'You have no bookings yet. ', h('a', { href: '/book' }, 'Book a bay'), '.')]));
-    } catch (err) {
-      if (err.status === 401) return location.replace('/login?next=' + encodeURIComponent('/account'));
-      list.replaceChildren(h('li', null, h('p', { class: 'msg err', role: 'alert' }, err.message)));
+    async function load() {
+      try {
+        const data = await api('/api/account/bookings');
+        list.replaceChildren(...(data.bookings.length ? data.bookings.map((b) => bookingCard(b, load)) : [h('li', { class: 'muted' }, 'You have no bookings yet. ', h('a', { href: '/book' }, 'Book a bay'), '.')]));
+      } catch (err) {
+        if (err.status === 401) return location.replace('/login?next=' + encodeURIComponent('/account'));
+        list.replaceChildren(h('li', null, h('p', { class: 'msg err', role: 'alert' }, err.message)));
+      }
     }
+    await load();
   }
 
   async function init() {

@@ -482,3 +482,5 @@ a[href^="tel:"] { white-space: nowrap; }
 .my-booking-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 18px; }
 .my-booking p { margin: 0; }
 .my-booking .btn { align-self: flex-start; margin-top: 8px; min-height: 44px; }
+.my-booking .cancel-box { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.my-booking .cancel-box .row { display: flex; flex-wrap: wrap; gap: 10px; }

@@ -11,7 +11,7 @@
 
   const CELL_TEXT = { f: 'free', u: 'in use now', b: 'booked for later today', h: 'payment in progress' };
   const STATUS_TEXT = { paid: 'Paid', refunded: 'Refunded', refund_pending: 'Refund sending', refund_failed: 'Refund failed', cancelled: 'Cancelled' };
-  const statusText = (r) => (r.status === 'refunded' && r.cancelledByOperator ? 'Cancelled, refunded' : STATUS_TEXT[r.status] || r.status);
+  const statusText = (r) => (r.status === 'refunded' && r.cancelledByCustomer ? 'Customer cancelled, refunded' : r.status === 'refunded' && r.cancelledByOperator ? 'Cancelled, refunded' : r.status === 'cancelled' && r.cancelledByCustomer ? 'Cancelled by customer' : STATUS_TEXT[r.status] || r.status);
   // Shown instead of "Razorpay said: ..." when the refund was cut off by a restart (Razorpay never answered).
   const INTERRUPTED_TEXT = 'The server restarted while this refund was being sent, so nobody knows whether it went through. Retrying is safe: Razorpay does not refund the same payment in full twice, and if the first try did go through, this booking is just marked as refunded.';
 

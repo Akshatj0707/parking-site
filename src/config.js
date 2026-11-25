@@ -181,6 +181,20 @@ function loadConfig(env = process.env) {
     maxAdvanceDays: 7,
     holdMinutes: number(env.HOLD_MINUTES, 10, { min: 1 }),
 
+    // A customer cancelling their own paid booking before it starts (src/bookings.js, customerCancel). The full amount comes
+    // back when the cancellation is at least freeHours before the start, or within graceMinutes of paying. Later than that
+    // (but still before the start) lateRefundPercent of the amount comes back. After the start it cannot be cancelled online.
+    cancel: {
+      freeHours: number(env.CANCEL_FREE_HOURS, 2),
+      graceMinutes: number(env.CANCEL_GRACE_MINUTES, 10),
+      lateRefundPercent: Math.min(100, Math.floor(number(env.CANCEL_LATE_REFUND_PERCENT, 50))),
+    },
+    // A customer who is parked adding more hours to a booking before it ends (src/gate.js, startExtension).
+    extend: {
+      maxHours: Math.max(1, Math.floor(number(env.EXTEND_MAX_HOURS, 4, { min: 1 }))), // at most this many hours at a time
+      maxTotalHours: Math.max(1, Math.floor(number(env.EXTEND_MAX_TOTAL_HOURS, 8, { min: 1 }))), // and a booking never gets longer than this
+    },
+
     // The entry and exit QR codes (src/gate.js).
     gate: {
       // The entry QR works from this many minutes before the booked start (and until the booked end).

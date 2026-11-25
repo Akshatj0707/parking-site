@@ -1,5 +1,6 @@
 /*
- * The pass page: the two QR codes of a paid booking, where the vehicle is in its visit, and paying for extra parking time.
+ * The pass page: the two QR codes of a paid booking, where the vehicle is in its visit, paying for extra parking time after the
+ * booked end, and buying more hours before it.
  *
  * The address holds the pass token (?t=...). The server decides everything: whether the QR codes work, what the extra
  * time costs, whether a payment is real. This page only asks and shows, and asks again every few seconds so it notices
@@ -20,6 +21,8 @@
   let cards = null; // the two QR cards, built once so the pictures do not flicker
   let paying = false; // true from pressing Pay until the payment is confirmed or given up
   let note = null; // { kind, text } shown above the pay button
+  let selected = null; // how many extra hours are chosen in the "need more time" box
+  let paySig = ''; // what the pay box shows now, so the 3-second refresh does not redraw it for nothing
   let offset = 0; // server clock minus this phone's clock
 
   const clock = (ms) => S.formatTime(ms, info.utcOffsetMinutes);
@@ -52,7 +55,8 @@
       case 'inside': {
         const left = b.endMs - nowMs();
         const text = left > 0 ? `Your booked time ends at ${clock(b.endMs)} (${B.duration(left)} from now). Show the exit QR code when you leave.` : `Your booked time ended at ${clock(b.endMs)}. You can still leave free of charge for a few more minutes (${grace} minutes in all).`;
-        return { tone: left > 0 ? 'ok' : 'warn', title: 'You are parked', text };
+        const more = info.extended ? ` You added ${info.extended.hours} extra ${info.extended.hours === 1 ? 'hour' : 'hours'} (${rupees(info.extended.amount)}).` : '';
+        return { tone: left > 0 ? 'ok' : 'warn', title: 'You are parked', text: text + more };
       }
       case 'overstaying': {
         const e = g.estimate;
@@ -90,29 +94,85 @@
     );
   }
 
+  function payButton(amount, onclick) {
+    const demo = info.payments.mode === 'demo';
+    if (info.payments.mode === 'unavailable') return h('p', { class: 'msg info' }, 'Online payment is switched off for now. Please pay the staff at the gate.');
+    return h('button', { type: 'button', class: 'btn btn-accent btn-block btn-tall', onclick }, demo ? 'Pay ' + rupees(amount) + ' (simulated)' : 'Pay ' + rupees(amount));
+  }
+
   function renderPay() {
     const g = info.gate;
-    if (g.stage !== 'payment_due' || !g.overstay) {
+    const due = g.stage === 'payment_due' && g.overstay;
+    const more = g.stage === 'inside' && info.extend;
+    if (!due && !more) {
       els.pay.replaceChildren();
+      paySig = '';
       return;
     }
     if (paying) return; // do not redraw under the payment window
-    const ov = g.overstay;
-    const demo = info.payments.mode === 'demo';
-    els.pay.replaceChildren(
+    if (more && !info.extend.atMaximum) {
+      const ok = info.extend.options.find((o) => o.hours === selected && o.available);
+      if (!ok) selected = (info.extend.options.find((o) => o.available) || {}).hours || null;
+    }
+    const sig = JSON.stringify([due ? g.overstay : info.extend, selected, note, info.payments.mode]);
+    if (sig === paySig && els.pay.firstChild) return;
+    paySig = sig;
+    els.pay.replaceChildren(due ? overstayBox(g.overstay) : extendBox(info.extend));
+  }
+
+  function overstayBox(ov) {
+    return h(
+      'div',
+      { class: 'pay-box' },
+      h('h2', null, 'Extra parking time'),
+      h('p', null, `${ov.hours} extra ${ov.hours === 1 ? 'hour' : 'hours'} after your booked end at ${rupees(ov.rate)} an hour.`),
+      h('p', { class: 'pay-amount' }, rupees(ov.amount)),
+      note ? h('p', { class: 'msg ' + note.kind, role: note.kind === 'err' ? 'alert' : null }, note.text) : null,
+      testNote(),
+      payButton(ov.amount, () => pay(OVERSTAY)),
+      h('p', { class: 'fine' }, 'Your exit is complete as soon as the payment goes through.')
+    );
+  }
+
+  // Before the booked end: add hours to this booking, as long as the bay is free for them.
+  function extendBox(ex) {
+    if (ex.atMaximum) {
+      return h('div', { class: 'pay-box' }, h('h2', null, 'Need more time?'), h('p', null, `This booking is already as long as it can be (${ex.maxTotalHours} hours). Book again for more time.`));
+    }
+    const choice = ex.options.find((o) => o.hours === selected);
+    const buttons = ex.options.map((o) =>
       h(
-        'div',
-        { class: 'pay-box' },
-        h('h2', null, 'Extra parking time'),
-        h('p', null, `${ov.hours} extra ${ov.hours === 1 ? 'hour' : 'hours'} after your booked end at ${rupees(ov.rate)} an hour.`),
-        h('p', { class: 'pay-amount' }, rupees(ov.amount)),
-        note ? h('p', { class: 'msg ' + note.kind, role: note.kind === 'err' ? 'alert' : null }, note.text) : null,
-        testNote(),
-        info.payments.mode === 'unavailable'
-          ? h('p', { class: 'msg info' }, 'Online payment is switched off for now. Please pay the staff at the gate.')
-          : h('button', { type: 'button', class: 'btn btn-accent btn-block btn-tall', onclick: pay }, demo ? 'Pay ' + rupees(ov.amount) + ' (simulated)' : 'Pay ' + rupees(ov.amount)),
-        h('p', { class: 'fine' }, 'Your exit is complete as soon as the payment goes through.')
+        'button',
+        {
+          type: 'button',
+          class: 'btn ' + (o.hours === selected ? 'btn-navy' : 'btn-outline'),
+          'aria-pressed': o.hours === selected ? 'true' : 'false',
+          disabled: !o.available,
+          onclick: () => {
+            selected = o.hours;
+            note = null;
+            paySig = '';
+            renderPay();
+          },
+        },
+        h('span', { class: 'ext-h' }, `+${o.hours} ${o.hours === 1 ? 'hour' : 'hours'}`),
+        h('span', { class: 'ext-p' }, rupees(o.amount))
       )
+    );
+    const blocked = ex.options.filter((o) => !o.available);
+    const free = ex.options.length - blocked.length; // a clash with a later booking also blocks every longer choice
+    return h(
+      'div',
+      { class: 'pay-box extend-box' },
+      h('h2', null, 'Need more time?'),
+      h('p', null, `Your booked time ends at ${clock(info.booking.endMs)}. Add more hours now and the bay stays yours.`),
+      h('div', { class: 'ext-options', role: 'group', 'aria-label': 'Extra hours' }, ...buttons),
+      blocked.length ? h('p', { class: 'fine' }, blocked[0].reason + (free ? ` You can add up to ${free} ${free === 1 ? 'hour' : 'hours'}.` : '')) : null,
+      choice ? h('p', { class: 'fine' }, `${choice.hours} more ${choice.hours === 1 ? 'hour' : 'hours'} for ${rupees(choice.amount)}: your parking then lasts until ${choice.until}.`) : null,
+      note ? h('p', { class: 'msg ' + note.kind, role: note.kind === 'err' ? 'alert' : null }, note.text) : null,
+      testNote(),
+      choice ? payButton(choice.amount, () => pay(EXTEND)) : h('p', { class: 'msg info' }, 'The bay is booked by someone else right after your time, so it cannot be extended.'),
+      h('p', { class: 'fine' }, `The time is added as soon as the payment goes through. The bay is held for you for ${ex.holdMinutes} minutes while you pay.`)
     );
   }
 
@@ -138,21 +198,28 @@
 
   function stopPaying(text, kind) {
     paying = false;
+    paySig = '';
     note = text ? { kind: kind || 'info', text } : null;
     renderPay();
   }
 
-  async function pay() {
+  // The two things that are paid on this page: the hours after the booked end, and more hours before it.
+  const OVERSTAY = { start: '/api/pass/overstay/start', demo: '/api/pass/overstay/demo-confirm', verify: '/api/pass/overstay/verify', body: () => ({ t: token }), gone: 'nothing_due' };
+  const EXTEND = { start: '/api/pass/extend/start', demo: '/api/pass/extend/demo-confirm', verify: '/api/pass/extend/verify', body: () => ({ t: token, hours: selected }), gone: 'not_extendable' };
+  let kind = OVERSTAY; // what the open payment window is for
+
+  async function pay(what) {
     if (paying) return;
     paying = true;
+    kind = what;
     note = null;
     els.pay.querySelectorAll('button').forEach((x) => (x.disabled = true));
     let start;
     try {
-      start = await B.post('/api/pass/overstay/start', { t: token });
+      start = await B.post(what.start, what.body());
     } catch (err) {
-      if (err.code === 'nothing_due') {
-        stopPaying();
+      if (err.code === what.gone || err.code === 'not_available') {
+        stopPaying(err.code === 'not_available' ? err.message : null, 'err');
         return refresh();
       }
       return stopPaying(err.message, 'err');
@@ -160,11 +227,11 @@
     const payment = start.payment;
     if (payment.mode === 'demo') {
       try {
-        await B.post('/api/pass/overstay/demo-confirm', { t: token });
+        await B.post(what.demo, { t: token });
       } catch (err) {
         return stopPaying(err.message, 'err');
       }
-      stopPaying();
+      stopPaying(what === EXTEND ? 'The extra time was added.' : null, 'ok');
       return refresh();
     }
     try {
@@ -204,7 +271,7 @@
     let last = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await B.post('/api/pass/overstay/verify', body);
+        await B.post(kind.verify, body);
         last = null;
         break;
       } catch (err) {
@@ -219,7 +286,7 @@
       return;
     }
     await refresh();
-    stopPaying();
+    stopPaying(kind === EXTEND ? 'The extra time was added.' : null, 'ok');
   }
 
   // ---- The two QR codes ------------------------------------------------------------------------------------------------

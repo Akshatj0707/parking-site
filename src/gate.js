@@ -21,6 +21,11 @@
  *   exitScanAt            when the exit QR was scanned
  *   exitAt, exitBy        when the vehicle really left (the exit scan, or the payment of the overstay that followed it)
  *   overstay              { hours, amountPaise, rate, status: due | paid | waived, orderId, paymentId, paidAt, method, ... }
+ *   extensions            attempts of a parked customer to add hours before the booked end (startExtension):
+ *                         [{ id, hours, fromMs, toMs, rate, amountPaise, status: pending | paid | refund_pending | refunded |
+ *                         refund_failed, orderId, paymentId, paidAt, holdUntil, ... }]. When one is paid the booking's endMs and
+ *                         hours grow and extensionPaise adds up the extra money. The booking's own amountPaise stays the
+ *                         first payment, so a refund can never be asked for more than was paid with that payment.
  *
  * The extra charge is: 0 when the vehicle leaves up to the grace period after the booked end, otherwise every started hour
  * times the booking's own hourly rate. It is worked out when the exit QR is scanned and then stays fixed, so the amount the
@@ -152,6 +157,7 @@ class Gate {
     this.log = log;
     this.signFor = signFor;
     this.starting = new Map(); // booking id -> the Razorpay order that is being created for its overstay
+    this.startingExt = new Map(); // booking id + hours -> the Razorpay order that is being created for an extension
   }
 
   // ---- Tokens -------------------------------------------------------------------------------------------------
@@ -222,6 +228,8 @@ class Gate {
       booking: this.summary(b),
       gate,
       rules: { earlyMinutes: this.gateConfig.earlyMinutes, graceMinutes: this.gateConfig.graceMinutes },
+      extend: this.extendInfo(b, now),
+      extended: this.extendedSummary(b),
       qr: live ? { in: `/api/pass/qr?t=${encodeURIComponent(token)}&k=in`, out: `/api/pass/qr?t=${encodeURIComponent(token)}&k=out` } : null,
       payments: { mode, keyId: mode === 'razorpay' ? this.config.razorpay.keyId : null },
       siteName: this.config.siteName,
@@ -299,7 +307,7 @@ class Gate {
   async enter(b, actor) {
     const now = this.now();
     if (b.status !== 'paid') {
-      const never = b.status === 'pending' || (b.status === 'cancelled' && b.cancelReason !== 'operator');
+      const never = b.status === 'pending' || (b.status === 'cancelled' && b.cancelReason !== 'operator' && b.cancelReason !== 'customer');
       return this.reply('bad', 'not_valid', 'Not a valid booking', never ? 'This booking was never paid. Do not let the vehicle in.' : 'This booking was cancelled or refunded. Do not let the vehicle in.', b, now);
     }
     if (b.exitAt) return this.reply('warn', 'already_left', 'Already left', `This vehicle already left at ${this.clock(b.exitAt)}. This booking cannot be used again.`, b, now);
@@ -391,6 +399,204 @@ class Gate {
     await this.bookings.persistNow();
     this.log.warn(`Booking ${b.ref}: the extra ${rupeesText(ov.amountPaise)} was ${method === 'waive' ? 'waived' : 'collected another way'} by ${ov.settledBy}.`);
     return this.reply('ok', method === 'waive' ? 'waived' : 'collected', method === 'waive' ? 'Charge waived' : 'Marked as collected', 'The vehicle can go.', b, now);
+  }
+
+  // ---- Adding more hours while parked (customer) ---------------------------------------------------------------
+  // Until the booked end a parked vehicle can buy more hours at the price of that day, as long as the bay is free for them. The
+  // new end time only counts once the payment is verified. A started payment holds the bay for the extra time for a few minutes.
+
+  // null when this booking cannot be extended now (not parked, already being scanned out, or the time is over). Otherwise the
+  // choices: for each number of hours the price, the new end time, and whether the bay is free for them.
+  extendInfo(b, now = this.now()) {
+    if (b.status !== 'paid' || !b.entryAt || b.exitScanAt || b.exitAt || now >= b.endMs) return null;
+    const cfg = this.config.extend;
+    const room = cfg.maxTotalHours - b.hours;
+    const options = [];
+    for (let hours = 1; hours <= Math.min(cfg.maxHours, Math.max(0, room)); hours++) {
+      const fromMs = b.endMs;
+      const toMs = fromMs + hours * HOUR;
+      const price = S.priceFor(b.vehicle, fromMs, hours, this.config);
+      const clash = this.bookings.findConflict({ id: b.id, plate: b.plate, bay: b.bay, startMs: fromMs, endMs: toMs }, now);
+      let reason = null;
+      if (clash && clash.kind === 'plate') reason = 'This vehicle has another booking at that time.';
+      else if (clash) reason = `This bay is booked from ${this.clock(Math.max(clash.window.startMs, fromMs))}.`;
+      options.push({ hours, amount: price.rupees, amountPaise: price.paise, rate: price.rate, fromMs, toMs, until: this.clock(toMs), available: !clash, reason });
+    }
+    return { options, maxTotalHours: cfg.maxTotalHours, atMaximum: options.length === 0, holdMinutes: this.config.holdMinutes };
+  }
+
+  // What the customer has already added, for the pass page.
+  extendedSummary(b) {
+    const paid = (Array.isArray(b.extensions) ? b.extensions : []).filter((x) => x.status === 'paid');
+    if (!paid.length) return null;
+    return { hours: paid.reduce((n, x) => n + x.hours, 0), amount: paid.reduce((n, x) => n + x.amountPaise, 0) / 100 };
+  }
+
+  async startExtension(token, hoursInput) {
+    const { booking: b } = this.parse(token, ['pass']);
+    const mode = this.bookings.paymentMode;
+    if (mode === 'unavailable') throw new HttpError(503, 'payments_unavailable', 'Online payment is switched off for now. Please ask the staff at the gate.');
+    if (this.store.syncError) throw new HttpError(503, 'storage_unavailable', 'Payments are paused for a moment because our records cannot be saved. Nothing was charged. Please try again shortly.');
+    const now = this.now();
+    const info = this.extendInfo(b, now);
+    if (!info) throw new HttpError(409, 'not_extendable', 'This booking cannot be extended now. You can add time only while your vehicle is parked and before your booked time ends.');
+    if (info.atMaximum) throw new HttpError(409, 'at_maximum', `This booking is already as long as it can be (${this.config.extend.maxTotalHours} hours). Please book again for more time.`);
+    const hours = Number(hoursInput);
+    const option = Number.isInteger(hours) ? info.options.find((o) => o.hours === hours) : null;
+    if (!option) throw new HttpError(400, 'invalid_hours', `Choose 1 to ${info.options.length} extra ${info.options.length === 1 ? 'hour' : 'hours'}.`);
+    if (!option.available) throw new HttpError(409, 'not_available', `${option.reason} Choose fewer hours, or ask the staff.`);
+
+    const list = Array.isArray(b.extensions) ? b.extensions : (b.extensions = []);
+    // an attempt that is still held, for the same hours, is reused: Razorpay lets the same order be paid again after a failure
+    const live = list.find((x) => x.status === 'pending' && x.hours === hours && x.fromMs === b.endMs && x.holdUntil > now);
+    if (live) {
+      live.holdUntil = now + this.config.holdMinutes * MIN;
+      if (mode === 'demo' || live.orderId) return this.extensionView(b, live, mode);
+    } else if (list.length >= 10) {
+      throw new HttpError(429, 'too_many', 'Too many attempts to extend this booking. Please ask the staff.');
+    }
+    if (mode === 'demo') {
+      const x = this.newExtension(b, option, now);
+      list.push(x);
+      await this.bookings.persistNow();
+      return this.extensionView(b, x, mode);
+    }
+    const key = b.id + ':' + hours;
+    if (!this.startingExt.has(key)) {
+      const job = this.createExtensionOrder(b, live || this.newExtension(b, option, now), !live).then((x) => this.extensionView(b, x, mode));
+      const clear = () => this.startingExt.delete(key);
+      job.then(clear, clear);
+      this.startingExt.set(key, job);
+    }
+    return this.startingExt.get(key);
+  }
+
+  newExtension(b, option, now) {
+    return {
+      id: 'ex_' + crypto.randomBytes(4).toString('hex'),
+      hours: option.hours,
+      fromMs: option.fromMs,
+      toMs: option.toMs,
+      rate: option.rate,
+      amountPaise: option.amountPaise,
+      status: 'pending',
+      createdAt: now,
+      holdUntil: now + this.config.holdMinutes * MIN,
+      orderId: null,
+      paymentId: null,
+      paidAt: null,
+    };
+  }
+
+  // The order must be saved BEFORE the customer sees the payment window: it is how a payment, however late it arrives, finds its
+  // booking again. The attempt holds the bay while the order is being made, and is dropped again when Razorpay says no.
+  async createExtensionOrder(b, x, isNew) {
+    if (isNew) b.extensions.push(x);
+    let order;
+    try {
+      order = await this.razorpay.orders.create({
+        amount: x.amountPaise,
+        currency: 'INR',
+        receipt: `${x.id}_${b.id}`, // at most 40 characters
+        notes: { booking_ref: b.ref, kind: 'extension', extra_hours: String(x.hours), vehicle_number: b.plate },
+      });
+      if (!order || typeof order.id !== 'string') throw new Error('Razorpay did not return an order id.');
+    } catch (err) {
+      if (isNew) b.extensions = b.extensions.filter((y) => y !== x);
+      this.log.error(`Razorpay could not create the order for more time on booking ${b.ref}: ${providerError(err)}`);
+      throw new HttpError(502, 'payment_provider_error', 'We could not start the payment. Please try again in a moment.');
+    }
+    x.orderId = order.id;
+    await this.bookings.persistNow();
+    return x;
+  }
+
+  extensionView(b, x, mode) {
+    const payment =
+      mode === 'demo'
+        ? { mode: 'demo', amount: x.amountPaise, currency: 'INR' }
+        : { mode: 'razorpay', keyId: this.config.razorpay.keyId, orderId: x.orderId, amount: x.amountPaise, currency: 'INR', name: this.config.siteName, description: `${x.hours} more ${x.hours === 1 ? 'hour' : 'hours'}, bay ${b.bay}` };
+    return { payment, extension: { hours: x.hours, amount: x.amountPaise / 100, until: this.clock(x.toMs) }, booking: this.summary(b), gate: this.state(b) };
+  }
+
+  // The customer's browser says "payment done". Only the signature proves it.
+  async verifyExtension(body) {
+    if (this.bookings.paymentMode !== 'razorpay') throw new HttpError(404, 'not_found', 'Not found.');
+    const data = body && typeof body === 'object' ? body : {};
+    const { razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: signature } = data;
+    if ([orderId, paymentId, signature, data.t].some((v) => typeof v !== 'string' || v === '' || v.length > 200)) {
+      throw new HttpError(400, 'invalid_payment', 'The payment details were incomplete.');
+    }
+    if (!verifyPaymentSignature(this.config.razorpay.keySecret, orderId, paymentId, signature)) {
+      this.log.warn('A payment confirmation for more parking time failed the signature check and was ignored.');
+      throw new HttpError(400, 'bad_signature', 'We could not verify this payment. If money was taken from your account, please contact us with your payment ID.');
+    }
+    const { booking: b } = this.parse(data.t, ['pass']);
+    const x = (b.extensions || []).find((e) => e.orderId === orderId);
+    if (!x) {
+      this.log.error(`Payment ${paymentId} was verified for order ${orderId}, but booking ${b.ref} has no extension with that order. Check the Razorpay dashboard.`);
+      throw new HttpError(400, 'wrong_order', `We could not match this payment to the extra time. Please contact us with payment ID ${paymentId}.`);
+    }
+    return this.settleExtension(b, x, paymentId);
+  }
+
+  // Demo mode (a developer's own computer, no Razorpay keys): the pretend "Pay" button.
+  async confirmDemoExtension(token) {
+    if (this.bookings.paymentMode !== 'demo') throw new HttpError(404, 'not_found', 'Not found.');
+    const { booking: b } = this.parse(token, ['pass']);
+    const x = [...(b.extensions || [])].reverse().find((e) => e.status === 'pending' && !e.orderId);
+    if (!x) throw new HttpError(409, 'nothing_due', 'There is no extra time waiting to be paid on this booking.');
+    return this.settleExtension(b, x, 'demo_' + crypto.randomBytes(6).toString('hex'));
+  }
+
+  // A verified payment for extra time exists. If the vehicle is still parked and the bay is still free for the extra hours, the
+  // booking grows. Otherwise (a payment that arrived long after the hold ended, and somebody else took the bay) the money goes
+  // straight back. Safe to call twice for the same payment (browser, webhook, check).
+  async settleExtension(b, x, paymentId) {
+    if (x.status === 'paid') {
+      if (x.paymentId && x.paymentId !== paymentId) {
+        this.log.error(`The extra time ${x.id} of booking ${b.ref} is already paid, but payment ${paymentId} was also captured for it. Refund the extra payment from the Razorpay dashboard.`);
+      }
+      return { outcome: 'paid', booking: b, extension: x };
+    }
+    if (x.status !== 'pending') return { outcome: x.status, booking: b, extension: x };
+    const now = this.now();
+    const clash = this.bookings.findConflict({ id: b.id, plate: b.plate, bay: b.bay, startMs: x.fromMs, endMs: x.toMs }, now);
+    const stillParked = b.status === 'paid' && b.entryAt && !b.exitScanAt && !b.exitAt && b.endMs === x.fromMs;
+    if (stillParked && !clash) {
+      x.status = 'paid';
+      x.paymentId = paymentId;
+      x.paidAt = now;
+      x.method = /^demo_/.test(paymentId) ? 'demo' : 'razorpay';
+      b.endMs = x.toMs;
+      b.hours += x.hours;
+      b.extensionPaise = (b.extensionPaise || 0) + x.amountPaise;
+      await this.bookings.persistNow();
+      this.log.info(`Booking ${b.ref}: ${x.hours} more ${x.hours === 1 ? 'hour' : 'hours'} (${rupeesText(x.amountPaise)}, ${paymentId}) added, now until ${this.clock(b.endMs)}.`);
+      return { outcome: 'paid', booking: b, extension: x };
+    }
+
+    x.paymentId = paymentId;
+    x.status = 'refund_pending';
+    await this.bookings.persistNow();
+    this.log.warn(`Booking ${b.ref}: the extra time ${x.id} was paid (${paymentId}) but is no longer possible (${clash ? 'the bay was taken' : 'the vehicle has left or the booking changed'}). Refunding it.`);
+    if (!this.razorpay) {
+      x.status = 'refunded';
+      await this.bookings.persistNow();
+      return { outcome: 'refunded', booking: b, extension: x };
+    }
+    try {
+      const refund = await this.razorpay.payments.refund(paymentId, { amount: x.amountPaise, speed: 'normal', notes: { booking_ref: b.ref, reason: 'Extra time no longer available' } });
+      x.status = 'refunded';
+      x.refundId = (refund && refund.id) || null;
+      x.refundedAt = this.now();
+    } catch (err) {
+      x.status = 'refund_failed';
+      x.refundError = providerError(err);
+      this.log.error(`REFUND FAILED for the extra time ${x.id} of booking ${b.ref}, payment ${paymentId}: ${x.refundError}. Refund ${rupeesText(x.amountPaise)} by hand from the Razorpay dashboard.`);
+    }
+    await this.bookings.persistNow();
+    return { outcome: x.status, booking: b, extension: x };
   }
 
   // ---- Paying an overstay (customer) --------------------------------------------------------------------------
@@ -492,6 +698,16 @@ class Gate {
   // Razorpay tells us a payment was captured. Returns null when the order is not an extra charge, so the normal booking
   // payment handling goes on.
   async handleWebhook(payment) {
+    const more = this.store.bookings.find((x) => Array.isArray(x.extensions) && x.extensions.some((e) => e.orderId === payment.order_id));
+    if (more) {
+      const e = more.extensions.find((y) => y.orderId === payment.order_id);
+      if (payment.amount !== e.amountPaise || payment.currency !== 'INR') {
+        this.log.error(`Webhook for extra time of booking ${more.ref} has amount ${payment.amount} ${payment.currency}, expected ${e.amountPaise} INR. Ignored.`);
+        return { ignored: 'amount_mismatch' };
+      }
+      const result = await this.settleExtension(more, e, payment.id);
+      return { outcome: 'extension_' + result.outcome };
+    }
     const b = this.store.bookings.find((x) => x.overstay && x.overstay.orderId === payment.order_id);
     if (!b) return null;
     if (payment.amount !== b.overstay.amountPaise || payment.currency !== 'INR') {
@@ -526,6 +742,35 @@ class Gate {
       }
     }
     if (due.length) this.bookings.persist();
+    found += await this.reconcileExtensions(now);
+    return found;
+  }
+
+  // The same safety net for orders of extra time that nobody confirmed (a customer who paid and closed the page).
+  async reconcileExtensions(now) {
+    let found = 0;
+    let touched = false;
+    for (const b of this.store.bookings) {
+      for (const x of Array.isArray(b.extensions) ? b.extensions : []) {
+        if (x.status !== 'pending' || !x.orderId || now < x.createdAt + RECONCILE_AFTER || (x.checks || 0) >= RECONCILE_TRIES) continue;
+        x.checks = (x.checks || 0) + 1;
+        touched = true;
+        let list;
+        try {
+          list = await this.razorpay.orders.fetchPayments(x.orderId);
+        } catch (err) {
+          this.log.error(`Could not ask Razorpay about the extra time order ${x.orderId}: ${providerError(err)}`);
+          continue;
+        }
+        const captured = ((list && list.items) || []).find((p) => p && p.status === 'captured' && p.amount === x.amountPaise && p.currency === 'INR');
+        if (captured) {
+          found += 1;
+          this.log.warn(`Booking ${b.ref} had a payment for more time that was never confirmed (${captured.id}). Settling it now.`);
+          await this.settleExtension(b, x, captured.id);
+        }
+      }
+    }
+    if (touched) this.bookings.persist();
     return found;
   }
 }

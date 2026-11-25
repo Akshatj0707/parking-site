@@ -148,11 +148,11 @@ test('the terms follow the settings: hold time, booking length, how far ahead, a
   assert.ok((await site.get('/refunds')).text.includes('7 minutes'), 'the refund policy uses the same hold time');
 });
 
-test('the refund policy gives Razorpay’s refund time and says refunds are for the full amount, to the original payment method', async (t) => {
+test('the refund policy gives Razorpay’s refund time, the cancellation rule, and says refunds go to the original payment method', async (t) => {
   const site = await makeSite();
   t.after(() => site.close());
   const { text } = await site.get('/refunds');
-  for (const expected of ['5 to 10 working days', 'full amount', 'same card, UPI ID, bank account or wallet', 'Before your booking starts', 'You cannot cancel on the website yet', 'pay_']) {
+  for (const expected of ['5 to 10 working days', 'full amount', 'same card, UPI ID, bank account or wallet', 'before your booking starts', 'Cancel this booking', 'Adding time to a booking', '2 hours', '50%', 'pay_']) {
     assert.ok(text.includes(expected), `the refund policy should say "${expected}"`);
   }
 });

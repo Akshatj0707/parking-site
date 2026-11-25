@@ -248,6 +248,11 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `HOLD_MINUTES` | How long a bay is held while the driver pays. | `10` |
 | `QR_EARLY_MINUTES` | The entry QR code works from this many minutes before the booked start. | `15` |
 | `OVERSTAY_GRACE_MINUTES` | A vehicle may leave this many minutes after the booked end without paying extra. After that every started hour is charged. | `10` |
+| `CANCEL_FREE_HOURS` | A customer who cancels at least this many hours before the booking starts gets the full amount back. | `2` |
+| `CANCEL_GRACE_MINUTES` | A customer who cancels within this many minutes of paying also gets the full amount back (as long as the booking has not started). | `10` |
+| `CANCEL_LATE_REFUND_PERCENT` | Share of the amount that comes back when the customer cancels later than that, but before the start (0 to 100). After the start a booking cannot be cancelled online. | `50` |
+| `EXTEND_MAX_HOURS` | The most hours a parked customer can add at one time. | `4` |
+| `EXTEND_MAX_TOTAL_HOURS` | A booking, with everything added to it, never gets longer than this many hours. | `8` |
 | `PUBLIC_URL` | The website address inside the QR codes, such as `https://parking-site-demo.onrender.com`. Empty: the address the customer used (Render also sets `RENDER_EXTERNAL_URL`). | empty |
 | `UTC_OFFSET_MINUTES` | The lot's clock, in minutes ahead of UTC. `330` is India. | `330` |
 | `AI_API_KEY`, `AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL` | A free (or any OpenAI-compatible) AI for the chat: see “Free AI answers for the chat”. | empty, `gemini` |
