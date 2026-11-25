@@ -3,7 +3,7 @@
 /*
  * Accounts and roles.
  *
- * There are three roles:
+ * There are five roles:
  *   ADMIN     the lot operator. Signs in with the operator user name and OPERATOR_PASSWORD (there is no admin row in
  *             users.json, so nobody can become an admin by signing up). May use the dashboard, the analytics page,
  *             cancel and refund bookings, and create the logins of government officials.
@@ -13,6 +13,10 @@
  *   OFFICIAL  a government official. The owner creates the login (name, email, password) on the Officials page; there is
  *             no way to sign up as one. Sees all the data, changes nothing (see roles.js). Kept in users.json (or the
  *             database) next to the customers, with role "official".
+ *   ATTENDANT gate staff. The owner creates the login on the Officials page; there is no way to sign up as one. Sees and
+ *             does only what the gate needs (scan customers in and out, collect an extra charge, move a booking to another
+ *             bay): no money figures, no customer list, no refunds, no waiving a charge (see roles.js). Kept next to the
+ *             customers with role "attendant".
  *   CUSTOMER  anyone who signs up with a name, an email and a password. May book a bay and see their own bookings.
  *             A customer can never open the operator pages.
  *
@@ -70,8 +74,9 @@ async function checkPassword(password, stored) {
   return crypto.timingSafeEqual(got, want);
 }
 
-// The role a stored account signs in with. Anything that is not an admin or an official is a customer.
-const roleOf = (user) => (user.role === 'admin' ? 'admin' : user.role === 'official' ? 'official' : 'customer');
+// The role a stored account signs in with. Anything that is not an admin, an official or an attendant is a customer.
+const STAFF_ROLES = new Set(['admin', 'official', 'attendant']);
+const roleOf = (user) => (STAFF_ROLES.has(user.role) ? user.role : 'customer');
 
 function checkPasswordSync(password, stored) {
   const parts = String(stored || '').split('$');
@@ -243,11 +248,11 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   }
 
   function start(req, res, session) {
-    const staff = session.role === 'admin' || session.role === 'official';
+    const staff = STAFF_ROLES.has(session.role);
     const seconds = staff ? ADMIN_SECONDS : CUSTOMER_SECONDS;
     let mark = null;
     if (session.role === 'admin' && !session.id) mark = passwordMark(); // the operator
-    else if (session.role === 'admin' || session.role === 'official') mark = userMark(users.byId(session.id));
+    else if (staff) mark = userMark(users.byId(session.id));
     const gen = (session.id && (users.byId(session.id) || {}).sessionGen) || 0;
     const payload = Buffer.from(JSON.stringify({ r: session.role, u: session.id || null, e: now() + seconds * 1000, g: gen, p: mark })).toString('base64url');
     res.append('Set-Cookie', `${COOKIE}=${payload}.${sign(payload)}; ${cookieFlags(req, seconds)}`);
@@ -260,7 +265,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     req.bfSession = null;
   }
 
-  // Who is making this request: { role: 'admin' | 'official' | 'customer', id, name, email } or null.
+  // Who is making this request: { role: 'admin' | 'official' | 'attendant' | 'customer', id, name, email } or null.
   function current(req) {
     if (req.bfSession !== undefined) return req.bfSession;
     req.bfSession = null;
@@ -282,7 +287,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     if (data.r === 'admin' && !data.u) {
       if (!config.operator.password || data.p !== passwordMark()) return null;
       req.bfSession = { role: 'admin', id: null, name: config.operator.user, email: null };
-    } else if (data.r === 'customer' || data.r === 'official' || data.r === 'admin') {
+    } else if (data.r === 'customer' || STAFF_ROLES.has(data.r)) {
       const user = typeof data.u === 'string' ? users.byId(data.u) : null;
       if (!user) return null; // an official or admin whose login was removed is signed out at once
       if ((data.g || 0) !== (user.sessionGen || 0)) return null; // a sign-in from before the password was reset
@@ -351,11 +356,15 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     return start(req, res, session);
   }
 
-  // ---- Government officials: created, changed and removed by the owner only (the routes check accounts:manage) -------
-  const officialRow = (u) => ({ id: u.id, name: u.name, email: u.email, office: u.office || '', createdAt: u.createdAt });
-  const officialById = (id) => {
+  // ---- Government officials and gate attendants: created, changed and removed by the owner only (the routes check accounts:manage)
+  const KIND = {
+    official: { word: 'official', long: 'government official', anOne: 'An official' },
+    attendant: { word: 'attendant', long: 'gate attendant', anOne: 'An attendant' },
+  };
+  const staffRow = (u) => ({ id: u.id, name: u.name, email: u.email, office: u.office || '', createdAt: u.createdAt });
+  const staffById = (id, role) => {
     const user = typeof id === 'string' && USER_ID.test(id) ? users.byId(id) : null;
-    if (!user || user.role !== 'official') throw new HttpError(404, 'not_found', 'There is no official login with that id.');
+    if (!user || user.role !== role) throw new HttpError(404, 'not_found', `There is no ${KIND[role].word} login with that id.`);
     return user;
   };
   async function keep() {
@@ -367,44 +376,53 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
     await users.settledWithin(5000);
   }
 
-  function officials() {
-    return users.users.filter((u) => u.role === 'official').map(officialRow).sort((a, b) => a.createdAt - b.createdAt);
-  }
+  const staffOf = (role) => users.users.filter((u) => u.role === role).map(staffRow).sort((a, b) => a.createdAt - b.createdAt);
+  const officials = () => staffOf('official');
+  const attendants = () => staffOf('attendant');
 
-  async function addOfficial(body) {
+  async function addStaff(role, body) {
+    const kind = KIND[role];
     const b = body && typeof body === 'object' ? body : {};
     const name = cleanName(b.name);
-    const office = cleanOffice(b.office);
+    const office = role === 'official' ? cleanOffice(b.office) : '';
     const email = normalizeEmail(b.email);
     if (!email) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
     const password = cleanPassword(b.password, email);
     const taken = () => users.byEmail(email) || (config.operator.password && email === config.operator.user.toLowerCase());
+    const takenError = () => new HttpError(409, 'email_taken', `An account with that email already exists. ${kind.anOne} needs an email address of their own.`);
     if (users.users.length >= MAX_USERS) throw new HttpError(503, 'accounts_full', 'New accounts cannot be created right now.');
-    if (taken()) throw new HttpError(409, 'email_taken', 'An account with that email already exists. An official needs an email address of their own.');
+    if (taken()) throw takenError();
     const pass = await hashPassword(password);
-    if (taken()) throw new HttpError(409, 'email_taken', 'An account with that email already exists. An official needs an email address of their own.');
-    const user = { id: 'usr_' + crypto.randomBytes(6).toString('hex'), role: 'official', name, email, office, pass, createdAt: now() };
+    if (taken()) throw takenError();
+    const user = { id: 'usr_' + crypto.randomBytes(6).toString('hex'), role, name, email, ...(role === 'official' ? { office } : {}), pass, createdAt: now() };
     users.add(user);
     await keep();
-    log.info(`The owner created a government official login for ${email}.`);
-    return officialRow(user);
+    log.info(`The owner created a ${kind.long} login for ${email}.`);
+    return staffRow(user);
   }
 
-  async function setOfficialPassword(id, body) {
-    const user = officialById(id);
+  async function setStaffPassword(role, id, body) {
+    const user = staffById(id, role);
     user.pass = await hashPassword(cleanPassword(body && body.password, user.email));
     await keep();
-    log.info(`The owner changed the password of the government official ${user.email}. That official was signed out.`);
-    return officialRow(user);
+    log.info(`The owner changed the password of the ${KIND[role].long} ${user.email}. That ${KIND[role].word} was signed out.`);
+    return staffRow(user);
   }
 
-  async function removeOfficial(id) {
-    const user = officialById(id);
+  async function removeStaff(role, id) {
+    const user = staffById(id, role);
     users.remove(user.id);
     await keep();
-    log.info(`The owner removed the government official login of ${user.email}.`);
-    return officialRow(user);
+    log.info(`The owner removed the ${KIND[role].long} login of ${user.email}.`);
+    return staffRow(user);
   }
+
+  const addOfficial = (body) => addStaff('official', body);
+  const setOfficialPassword = (id, body) => setStaffPassword('official', id, body);
+  const removeOfficial = (id) => removeStaff('official', id);
+  const addAttendant = (body) => addStaff('attendant', body);
+  const setAttendantPassword = (id, body) => setStaffPassword('attendant', id, body);
+  const removeAttendant = (id) => removeStaff('attendant', id);
 
   // ---- A forgotten password (customers only) ---------------------------------------------------------------------
   const resetMs = () => config.auth.resetMinutes * 60 * 1000;
@@ -523,7 +541,7 @@ function createAuth({ config, now = Date.now, log = console, storage = null }) {
   if (config.auth.seedTestCustomer) seedTestCustomer();
   seedExtraAdmin();
 
-  return { users, current, publicUser, signup, login, logout: end, startReset, resetPassword, officials, addOfficial, setOfficialPassword, removeOfficial, signFor, TEST_CUSTOMER, USER_ID };
+  return { users, current, publicUser, signup, login, logout: end, startReset, resetPassword, officials, addOfficial, setOfficialPassword, removeOfficial, attendants, addAttendant, setAttendantPassword, removeAttendant, signFor, TEST_CUSTOMER, USER_ID };
 }
 
 module.exports = { createAuth, UserStore, hashPassword, checkPassword, normalizeEmail, TEST_CUSTOMER, USER_ID, COOKIE };

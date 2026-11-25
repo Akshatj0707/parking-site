@@ -28,6 +28,7 @@
   let watch = null; // the timer that waits for a customer to pay
   let cfg = null;
   let canMove = false;
+  let canWaive = false; // only the owner may drop a charge; gate staff may mark it collected
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -47,7 +48,7 @@
     if (g && g.stage === 'payment_due') {
       actions.push(
         h('button', { class: 'btn btn-navy', type: 'button', onclick: () => settle(b.ref, 'manual') }, 'Collected another way'),
-        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => settle(b.ref, 'waive') }, 'Waive the charge')
+        canWaive ? h('button', { class: 'btn btn-outline', type: 'button', onclick: () => settle(b.ref, 'waive') }, 'Waive the charge') : null
       );
     }
     actions.push(h('button', { class: 'btn btn-accent', type: 'button', onclick: clearResult }, 'Scan next'));
@@ -279,6 +280,7 @@
   async function init() {
     cfg = await B.getConfig().catch(() => null);
     canMove = await B.can('bookings:move-bay').catch(() => false);
+    canWaive = await B.can('gate:waive').catch(() => false);
     loadInside();
     setInterval(() => document.visibilityState === 'visible' && loadInside(), 20000);
     // A normal phone camera opens the address inside the QR code, /scan?t=..., and that is handled here as a scan.

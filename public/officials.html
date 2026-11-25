@@ -37,8 +37,8 @@
 <main id="main" class="wrap main-pad">
   <div class="dash-head rise">
     <div class="stack g8">
-      <p class="eyebrow">Government officials</p>
-      <h1 class="h1">Logins for government officials</h1>
+      <p class="eyebrow">Staff logins</p>
+      <h1 class="h1">Logins for officials and gate staff</h1>
     </div>
     <p class="updated" id="updated" role="status">Loading…</p>
   </div>
@@ -46,13 +46,14 @@
   <div class="stack g12" id="notice" aria-live="polite"></div>
 
   <section class="panel" aria-labelledby="who-title">
-    <h2 id="who-title">What an official can do</h2>
-    <p class="muted">A government official signs in on the normal <a href="/login">Sign in</a> page with the email and password you create here. They see all the data: every booking, every customer, all payments and numbers, and they can download the spreadsheet. They cannot cancel or refund a booking, change any setting, or create other logins. Only you can do that.</p>
-    <p class="muted">Nobody can create an official login by signing up. Customers sign up by themselves and are always customers.</p>
+    <h2 id="who-title">What each login can do</h2>
+    <p class="muted"><b>Government official.</b> Signs in on the normal <a href="/login">Sign in</a> page with the email and password you create here. Sees all the data: every booking, every customer, all payments and numbers, and can download the spreadsheet. Cannot cancel or refund a booking, change any setting, or create other logins.</p>
+    <p class="muted"><b>Gate attendant.</b> Signs in the same way and is taken straight to the gate scanner. Can scan customers in and out, mark an extra charge as collected another way (for example cash) and move a booking to another free bay. Sees no money figures and no customer list, and cannot refund, cancel or waive a charge. Only you can do that.</p>
+    <p class="muted">Nobody can create one of these logins by signing up. Customers sign up by themselves and are always customers.</p>
   </section>
 
   <section class="panel" aria-labelledby="add-title">
-    <h2 id="add-title">Create a login</h2>
+    <h2 id="add-title">Create a login for an official</h2>
     <form class="filters" id="add-form" novalidate autocomplete="off">
       <div class="field">
         <label class="label" for="o-name">Official's name</label>
@@ -82,6 +83,35 @@
     <div class="panel-head"><h2 id="list-title">Officials with a login</h2><p class="totals" id="totals" role="status"></p></div>
     <div class="table-wrap" id="list"><p class="muted">Loading…</p></div>
     <p class="fine">Passwords are never shown: nobody, including you, can read them. If an official forgets theirs, set a new one. Removing a login signs that official out at once.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="add-a-title">
+    <h2 id="add-a-title">Create a login for gate staff</h2>
+    <form class="filters" id="add-form-a" novalidate autocomplete="off">
+      <div class="field">
+        <label class="label" for="a-name">Attendant's name</label>
+        <input class="input" id="a-name" name="name" type="text" maxlength="60" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label class="label" for="a-email">Email (this is the login id)</label>
+        <input class="input" id="a-email" name="email" type="email" maxlength="120" autocapitalize="none" spellcheck="false" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label class="label" for="a-password">Password</label>
+        <input class="input" id="a-password" name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" required>
+        <p class="help">At least 8 characters. The name shows in the log of every vehicle this person scans in or out.</p>
+      </div>
+      <div class="filters-actions">
+        <button class="btn btn-navy" type="submit" id="add-go-a">Create login</button>
+      </div>
+    </form>
+    <div id="add-message-a" aria-live="polite"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="list-a-title">
+    <div class="panel-head"><h2 id="list-a-title">Gate attendants with a login</h2><p class="totals" id="totals-a" role="status"></p></div>
+    <div class="table-wrap" id="list-a"><p class="muted">Loading…</p></div>
+    <p class="fine">Remove the login of someone who leaves: they are signed out at once. Set a new password if a phone or password is lost.</p>
   </section>
 </main>
 

@@ -72,12 +72,13 @@ function readQr(svg) {
 
 // ===== Who may scan =================================================================================
 
-test('only the admin may scan; customers and officials may not', () => {
+test('only the admin and the gate attendants may scan; customers and officials may not', () => {
   assert.equal(roles.can('admin', 'gate:scan'), true);
+  assert.equal(roles.can('attendant', 'gate:scan'), true);
   assert.equal(roles.can('official', 'gate:scan'), false);
   assert.equal(roles.can('customer', 'gate:scan'), false);
   assert.ok(roles.permissionsOf('admin').includes('gate:scan'));
-  assert.equal(roles.matrix().permissions.find((p) => p.id === 'gate:scan').roles.join(), 'admin');
+  assert.equal(roles.matrix().permissions.find((p) => p.id === 'gate:scan').roles.join(), 'attendant,admin');
 });
 
 // ===== The pass of a paid booking ===================================================================

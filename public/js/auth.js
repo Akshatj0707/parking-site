@@ -15,7 +15,7 @@
     return next && /^\/(?!\/)[A-Za-z0-9\-._~/?=&%]*$/.test(next) ? next : null;
   }
   const operatorPath = (path) => /^\/(dashboard|analytics|business|bookings|customers|officials|scan)(\/|\?|$)/.test(path);
-  const isStaff = (user) => user.role === 'admin' || user.role === 'official';
+  const isStaff = (user) => user.role === 'admin' || user.role === 'official' || user.role === 'attendant';
 
   function field(id, label, attrs, help) {
     const input = h('input', Object.assign({ class: 'input', id, name: id, required: true }, attrs));
@@ -58,7 +58,7 @@
         show(message, err.message);
       }
     });
-    const kids = formShell({ eyebrow: 'Sign in', title: 'Welcome back', lead: 'Customers and government officials sign in with their email. The parking owner signs in with the owner user name.' });
+    const kids = formShell({ eyebrow: 'Sign in', title: 'Welcome back', lead: 'Customers, gate staff and government officials sign in with their email. The parking owner signs in with the owner user name.' });
     kids.push(form);
     const test = cfg.auth && cfg.auth.testCustomer;
     if (test) {
@@ -176,11 +176,11 @@
       ...formShell({
         eyebrow: 'Signed in',
         title: 'You are signed in',
-        lead: user.role === 'admin' ? (user.email ? `Signed in as an admin (${user.name}).` : `Signed in as the parking owner (${user.name}).`) : user.role === 'official' ? `Signed in as a government official (${user.name}).` : `Signed in as ${user.name}.`,
+        lead: user.role === 'admin' ? (user.email ? `Signed in as an admin (${user.name}).` : `Signed in as the parking owner (${user.name}).`) : user.role === 'official' ? `Signed in as a government official (${user.name}).` : user.role === 'attendant' ? `Signed in as gate staff (${user.name}).` : `Signed in as ${user.name}.`,
       }),
       h('div', { class: 'row' },
-        staff ? h('a', { class: 'btn btn-navy', href: '/dashboard' }, 'Open the dashboard') : h('a', { class: 'btn btn-navy', href: '/account' }, 'My bookings'),
-        staff ? h('a', { class: 'btn btn-outline', href: '/business' }, 'Business overview') : h('a', { class: 'btn btn-outline', href: '/book' }, 'Book a bay'),
+        user.role === 'attendant' ? h('a', { class: 'btn btn-navy', href: '/scan' }, 'Open the gate scanner') : staff ? h('a', { class: 'btn btn-navy', href: '/dashboard' }, 'Open the dashboard') : h('a', { class: 'btn btn-navy', href: '/account' }, 'My bookings'),
+        user.role === 'attendant' ? null : staff ? h('a', { class: 'btn btn-outline', href: '/business' }, 'Business overview') : h('a', { class: 'btn btn-outline', href: '/book' }, 'Book a bay'),
         staff ? h('button', { class: 'btn btn-outline', type: 'button', onclick: signOut }, 'Sign out') : null)
     );
   }

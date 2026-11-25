@@ -51,8 +51,8 @@ async function bookPaid(s, cookie, body, paymentId) {
 
 // ===== The permission table ====================================================================================
 
-test('there are exactly three roles, and the permission table is the single source of truth', () => {
-  assert.deepEqual(Object.keys(roles.ROLES).sort(), ['admin', 'customer', 'official']);
+test('there are exactly four roles, and the permission table is the single source of truth', () => {
+  assert.deepEqual(Object.keys(roles.ROLES).sort(), ['admin', 'attendant', 'customer', 'official']);
   // a customer can book, see their own bookings and cancel them before they start, and nothing else
   assert.deepEqual(roles.permissionsOf('customer').sort(), ['booking:cancel-own', 'booking:create', 'booking:view-own']);
   for (const p of Object.keys(roles.PERMISSIONS).filter((x) => !['booking:create', 'booking:view-own', 'booking:cancel-own'].includes(x))) {
@@ -67,7 +67,7 @@ test('there are exactly three roles, and the permission table is the single sour
   assert.equal(roles.can('admin', 'made:up'), false);
   assert.deepEqual(roles.permissionsOf('__proto__'), []);
   const m = roles.matrix();
-  assert.deepEqual(m.roles.map((r) => r.id), ['customer', 'official', 'admin']);
+  assert.deepEqual(m.roles.map((r) => r.id), ['customer', 'official', 'attendant', 'admin']);
   assert.equal(m.permissions.find((p) => p.id === 'bookings:view-all').roles.join(), 'official,admin');
   assert.equal(m.permissions.find((p) => p.id === 'bookings:cancel-refund').roles.join(), 'admin', 'only the owner refunds');
 });
@@ -380,9 +380,9 @@ test('the admin is shown who may do what', async (t) => {
   const s = await site(t);
   const admin = await adminCookie(s);
   const m = (await s.get('/api/dashboard/roles', as(admin))).json;
-  assert.deepEqual(m.roles.map((r) => r.label), ['Customer', 'Government official', 'Admin (owner)']);
+  assert.deepEqual(m.roles.map((r) => r.label), ['Customer', 'Government official', 'Gate attendant', 'Admin (owner)']);
   assert.ok(m.permissions.length >= 8);
-  assert.deepEqual(m.permissions.find((p) => p.id === 'booking:view-own').roles, ['customer', 'official', 'admin'].filter((r) => roles.can(r, 'booking:view-own')));
+  assert.deepEqual(m.permissions.find((p) => p.id === 'booking:view-own').roles, ['customer', 'official', 'attendant', 'admin'].filter((r) => roles.can(r, 'booking:view-own')));
 });
 
 // ===== The pages' scripts ==========================================================================================

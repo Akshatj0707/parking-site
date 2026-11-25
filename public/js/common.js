@@ -221,7 +221,7 @@
 
   // ---- Who is signed in -----------------------------------------------------------------------------------------
   let sessionPromise = null;
-  // { role: 'admin' | 'official' | 'customer', name, email, permissions } or null
+  // { role: 'admin' | 'official' | 'attendant' | 'customer', name, email, permissions } or null
   function session() {
     if (!sessionPromise) sessionPromise = api('/api/me').then((r) => r.user, () => null);
     return sessionPromise;
@@ -257,7 +257,15 @@
     const link = (href, text) => h('a', { class: 'nav-auth', href, 'data-auth': '' }, text);
     const has = (href) => nav.querySelector('a[href="' + href + '"]');
     if (!user) return add(link('/login', 'Sign in'));
-    if (user.role === 'admin' || user.role === 'official') {
+    if (user.role === 'attendant') {
+      // Gate staff see the scanner and nothing else of the owner's pages: the other links are taken out of the menu.
+      nav.querySelectorAll('a').forEach((a) => {
+        if (/^\/(dashboard|bookings|business|analytics|customers|officials)(\/|$)/.test(a.getAttribute('href') || '')) a.remove();
+      });
+      if (!has('/scan')) add(link('/scan', 'Scan QR'));
+      const sub = document.querySelector('header .brand-sub');
+      if (sub) sub.textContent = 'Gate';
+    } else if (user.role === 'admin' || user.role === 'official') {
       if (!has('/dashboard')) add(link('/dashboard', 'Dashboard'));
       if (!has('/business')) add(link('/business', 'Business'));
       // Only the admin may scan customers in and out; the page and its requests are refused to everyone else.
