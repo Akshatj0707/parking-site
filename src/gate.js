@@ -67,6 +67,22 @@ function overstayFor(b, at, gateConfig) {
   return { hours, amountPaise: Math.round(hours * ratePerHour(b) * 100), overMinutes: Math.ceil(late / MIN) };
 }
 
+// When a paid booking that nobody turns up for lets go of its bay (a no-show), or null when that never happens: the setting is
+// off, or the booked time is over before that moment. Nothing is stored: it is worked out from the booked start.
+function releaseAtOf(b, gateConfig) {
+  const minutes = gateConfig.noShowMinutes;
+  if (!(minutes > 0)) return null;
+  const at = b.startMs + minutes * MIN;
+  return at < b.endMs ? at : null;
+}
+
+// A paid booking whose vehicle was not scanned in within the no-show time: its bay is free for other customers from releaseAt.
+function isReleased(b, now, gateConfig) {
+  if (b.status !== 'paid' || b.entryAt || b.exitAt) return false;
+  const at = releaseAtOf(b, gateConfig);
+  return at !== null && now >= at && now < b.endMs;
+}
+
 // Where a booking is in its visit:
 //   void          not paid, cancelled or refunded: no QR code works
 //   upcoming      the entry QR does not work yet
@@ -103,6 +119,7 @@ function gateState(b, now, gateConfig) {
     exitAt: b.exitAt || null,
     exitBy: b.exitBy || null,
     estimate,
+    released: isReleased(b, now, gateConfig),
     overstay: ov ? { hours: ov.hours, amount: ov.amountPaise / 100, rate: ov.rate, status: ov.status, method: ov.method || null, paidAt: ov.paidAt || null } : null,
   };
 }
@@ -227,9 +244,10 @@ class Gate {
       utcOffsetMinutes: this.config.utcOffsetMinutes,
       booking: this.summary(b),
       gate,
-      rules: { earlyMinutes: this.gateConfig.earlyMinutes, graceMinutes: this.gateConfig.graceMinutes },
+      rules: { earlyMinutes: this.gateConfig.earlyMinutes, graceMinutes: this.gateConfig.graceMinutes, noShowMinutes: this.gateConfig.noShowMinutes },
       extend: this.extendInfo(b, now),
       extended: this.extendedSummary(b),
+      bayMoved: Array.isArray(b.bayMoves) && b.bayMoves.length ? b.bayMoves[b.bayMoves.length - 1] : null,
       qr: live ? { in: `/api/pass/qr?t=${encodeURIComponent(token)}&k=in`, out: `/api/pass/qr?t=${encodeURIComponent(token)}&k=out` } : null,
       payments: { mode, keyId: mode === 'razorpay' ? this.config.razorpay.keyId : null },
       siteName: this.config.siteName,
@@ -319,11 +337,27 @@ class Gate {
     if (now >= b.endMs) {
       return this.reply('bad', 'expired', 'Booking time is over', `The booked time ended at ${this.clock(b.endMs)} and this vehicle was never scanned in. It cannot enter on this booking.`, b, now);
     }
+    // A no-show whose bay was released: it may still come in, but only if nobody else has been given the bay in the meantime.
+    const late = isReleased(b, now, this.gateConfig);
+    if (late) {
+      const other = this.bookings.bayBlocker(b, now);
+      if (other) {
+        return this.reply(
+          'bad',
+          'released',
+          'Bay was given to someone else',
+          `This vehicle did not arrive within ${this.gateConfig.noShowMinutes} minutes of the start, so bay ${b.bay} was released and is now booked by someone else from ${this.clock(other.startMs)}. Move this booking to another free bay, then scan it again.`,
+          b,
+          now
+        );
+      }
+    }
     b.entryAt = now;
     b.entryBy = this.who(actor);
     await this.bookings.persistNow();
-    this.log.info(`Booking ${b.ref} (${b.plate}) entered bay ${b.bay}, scanned by ${b.entryBy}.`);
-    return this.reply('ok', 'entered', 'Entry recorded', `Send it to bay ${b.bay} (${LOT[b.vehicle].zones[S.parseBay(b.bay).zone]}). Booked until ${this.clock(b.endMs)}.`, b, now);
+    this.log.info(`Booking ${b.ref} (${b.plate}) entered bay ${b.bay}, scanned by ${b.entryBy}${late ? ` (late: its bay had been released, but nobody else had it)` : ''}.`);
+    const lateNote = late ? ` It came ${Math.round((now - b.startMs) / MIN)} minutes after the start; the bay was still free.` : '';
+    return this.reply('ok', 'entered', 'Entry recorded', `Send it to bay ${b.bay} (${LOT[b.vehicle].zones[S.parseBay(b.bay).zone]}). Booked until ${this.clock(b.endMs)}.${lateNote}`, b, now);
   }
 
   async leave(b, actor) {
@@ -377,7 +411,7 @@ class Gate {
       .filter((b) => b.status === 'paid' && b.entryAt && !b.exitAt)
       .sort((a, b) => a.entryAt - b.entryAt)
       .map((b) => ({ booking: this.summary(b), gate: this.state(b, now) }));
-    return { serverTime: now, count: rows.length, vehicles: rows };
+    return { serverTime: now, count: rows.length, vehicles: rows, warnings: this.bookings.bayWarnings(now) };
   }
 
   // The admin settles an overstay in another way: the customer paid cash at the gate (method "manual"), or the charge is
@@ -779,4 +813,4 @@ function createGate(deps) {
   return new Gate(deps);
 }
 
-module.exports = { createGate, Gate, gateState, stageOf, overstayFor, qrSvg, extractToken };
+module.exports = { createGate, Gate, gateState, stageOf, overstayFor, releaseAtOf, isReleased, qrSvg, extractToken };

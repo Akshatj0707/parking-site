@@ -17,7 +17,9 @@
 
   // An official sees every number but cannot refund or run the setup check: those parts of the page are left out for them.
   let canRefund = true;
-  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view'), B.can('gate:scan')]).then(([refund, check, scan]) => {
+  let canMove = false;
+  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view'), B.can('gate:scan'), B.can('bookings:move-bay')]).then(([refund, check, scan, move]) => {
+    canMove = move;
     $('scan-link').hidden = !scan;
     canRefund = refund;
     $('cancel-panel').hidden = !refund;
@@ -141,7 +143,9 @@
     // from the entry and exit QR scans (the booking money above does not include the extra time)
     const g = d.gate || { inside: 0, overstaying: 0, paymentDue: 0, extraToday: 0, extraPaymentsToday: 0 };
     ui.tiles.inside.n.textContent = String(g.inside);
-    ui.tiles.inside.note.textContent = g.overstaying || g.paymentDue ? `${g.overstaying} over their time, ${g.paymentDue} waiting to pay extra` : 'scanned in and not yet out';
+    ui.tiles.inside.note.textContent =
+      (g.overstaying || g.paymentDue ? `${g.overstaying} over their time, ${g.paymentDue} waiting to pay extra` : 'scanned in and not yet out') +
+      (g.released ? `. ${g.released} no-show ${g.released === 1 ? 'bay' : 'bays'} released` : '');
     ui.tiles.extra.n.textContent = rupees(g.extraToday);
     ui.tiles.extra.note.textContent = `${g.extraPaymentsToday} ${g.extraPaymentsToday === 1 ? 'vehicle' : 'vehicles'} stayed past the booked time`;
   }
@@ -162,8 +166,9 @@
   }
 
   function attentionNodes(d) {
-    if (!d.attention.length) return [h('p', { class: 'msg ok' }, 'Nothing needs your attention right now.')];
-    return d.attention.map((r) =>
+    const blocked = (d.bayWarnings || []).map((w) => B.bayWarning(w, { canMove, utcOffsetMinutes: d.utcOffsetMinutes, moved: () => refresh() }));
+    if (!d.attention.length && !blocked.length) return [h('p', { class: 'msg ok' }, 'Nothing needs your attention right now.')];
+    return blocked.concat(d.attention.map((r) =>
       r.status === 'refund_failed'
         ? h(
             'div',
@@ -176,7 +181,7 @@
             canRefund ? h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn-navy btn-sm', type: 'button', onclick: () => openInPanel(r.plate) }, 'Retry refund')) : null
           )
         : h('div', { class: 'banner warn' }, h('b', null, 'A refund is being sent. '), `${r.plate}, ${rupees(r.amount)}. If this is still here after a few minutes, check the Razorpay dashboard.`)
-    );
+    ));
   }
 
   function recentTable(d) {
@@ -539,7 +544,7 @@
     updateLot('car', d.lot.car, d);
     updateLot('bike', d.lot.bike, d);
     $('notice').replaceChildren(...noticeNodes(d));
-    const nextAttention = JSON.stringify(d.attention);
+    const nextAttention = JSON.stringify([d.attention, d.bayWarnings, canMove]);
     if (nextAttention !== attentionKey) {
       attentionKey = nextAttention;
       $('attention').replaceChildren(...attentionNodes(d));

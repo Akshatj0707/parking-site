@@ -209,6 +209,12 @@ function loadConfig(env = process.env) {
       // The address of the website that goes inside the QR code, such as https://parking-site-demo.onrender.com. Empty: the
       // address the customer's browser used is taken (Render also tells us its own address in RENDER_EXTERNAL_URL).
       publicUrl: String(env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || '').trim().replace(/\/+$/, ''),
+      // A paid booking whose vehicle has not been scanned in this many minutes after the booked start is a no-show: its bay is
+      // released for other customers (the money is kept). The vehicle may still come in if the bay is still free. 0 turns it off.
+      noShowMinutes: Math.max(0, Math.min(240, Math.floor(number(env.NO_SHOW_RELEASE_MINUTES, 30)))),
+      // The admin is warned when a vehicle that is past its booked time sits on a bay that someone else has booked from within
+      // this many minutes (or from a time that has already come).
+      bayWarningMinutes: Math.max(5, Math.min(240, Math.floor(number(env.BAY_WARNING_MINUTES, 30)))),
     },
   };
 }

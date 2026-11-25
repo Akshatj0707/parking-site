@@ -356,7 +356,8 @@ button:disabled { cursor: not-allowed; }
 .banner ul { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .updated { font-size: 14px; color: var(--muted); }
 .badge.cancelled { background: var(--track); color: var(--navy-3); }
-.banner-actions { margin-top: 12px; }
+.banner-actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.banner .fine { margin: 8px 0 0; }
 
 /* Cancel and refund (operator) */
 .cancel-form { max-width: 560px; }

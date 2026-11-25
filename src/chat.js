@@ -566,6 +566,14 @@ function answerCancel(u, ctx) {
   };
 }
 
+// What happens to a bay when the customer does not turn up (the NO_SHOW_RELEASE_MINUTES setting).
+function noShowSentence(config) {
+  const n = config.gate.noShowMinutes;
+  return n > 0
+    ? `Your bay is kept for you for ${n} minutes after the start. If the vehicle has not been scanned in by then, the bay is released for other customers and the amount is not refunded; if you arrive later and the bay is still free, you can still park.`
+    : 'Your bay stays reserved for the whole time you booked, even if you arrive late.';
+}
+
 function answerAccount(u, ctx) {
   const { config } = ctx;
   return {
@@ -630,7 +638,7 @@ const ANSWERS = {
   }),
   late: (u, ctx) => ({
     text: para(
-      'Your bay stays reserved for the whole time you booked, even if you arrive late. The booking ends at the end time you chose.',
+      noShowSentence(ctx.config) + ' The booking ends at the end time you chose.',
       `To stay longer while you are parked, open your pass (My bookings, then the QR codes) before your time ends and add up to ${ctx.config.extend.maxHours} more hours, if the bay is free. If you stay past the end without adding time, the first ${ctx.config.gate.graceMinutes} minutes are free and after that every started hour is charged, which you pay on your pass before you drive out. You can also make a second booking that starts when the first one ends.`
     ),
     keys: ['book-car', 'book-bike'],
@@ -776,7 +784,7 @@ function systemPrompt(ctx) {
     `- A booking is ${minH} to ${maxH} whole hours. It starts on the hour or the half hour, up to ${config.maxAdvanceDays} days ahead. ${config.auth && config.auth.customerLoginRequired ? 'A visitor signs in or creates a free account (Sign in /login, Create account /signup) before booking, and My bookings (/account) lists their bookings.' : 'No account is needed, but a free account (/signup) lets a customer see their bookings at /account.'} The lot operator signs in on the same Sign in page and uses a private dashboard and analytics page; never reveal how to get operator access or anything the operator sees.`,
     '- How to book: on the booking page the visitor chooses car or two-wheeler, types the vehicle number (for example MP 09 AB 1234), picks the day, start time and length, chooses a zone and a free bay, and pays online with Razorpay.',
     `- While a visitor pays, the bay is held for ${config.holdMinutes} minutes. After that it goes back on sale and they can start again.`,
-    `- Arriving late: the bay stays reserved for the whole booked time, and the booking ends at the booked end time. To stay longer, a parked customer can add up to ${config.extend.maxHours} more hours from their pass page before the time ends (if the bay is free), or make a second booking that starts when the first ends. Staying past the end without adding time costs every started hour after ${config.gate.graceMinutes} free minutes, paid on the pass page before leaving.`,
+    `- Arriving late: ${noShowSentence(config)} The booking ends at the booked end time. To stay longer, a parked customer can add up to ${config.extend.maxHours} more hours from their pass page before the time ends (if the bay is free), or make a second booking that starts when the first ends. Staying past the end without adding time costs every started hour after ${config.gate.graceMinutes} free minutes, paid on the pass page before leaving.`,
     '- Finding a booking: the Find my booking page, with the vehicle number, shows the bay, the time and the booking reference of a booking that has not ended. It never shows names, phone numbers or payment details.',
     `- Cancelling and refunds: a signed-in customer cancels their own booking in My bookings (/account) until it starts; the page shows the refund before they confirm. At least ${config.cancel.freeHours} hours before the start, or within ${config.cancel.graceMinutes} minutes of paying, the full amount comes back; later than that but before the start ${config.cancel.lateRefundPercent}% comes back. After it has started, or for a booking made without an account, the visitor must contact the lot with their vehicle number or booking reference, and there is normally no refund unless the lot could not give the bay that was paid for. If a payment arrives but cannot become a booking, it is refunded automatically in full, and refunds show up in 5 to 10 working days. Never promise a cancellation or a refund yourself.`,
     '- Payments go through Razorpay’s secure window, with the payment methods it shows. Card, UPI and bank details never reach this website.',

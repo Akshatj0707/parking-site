@@ -272,7 +272,56 @@
     return add(h('button', { class: 'nav-auth nav-signout', type: 'button', 'data-auth': '', onclick: signOut }, 'Sign out'));
   }
 
-  window.Bayfind = { S, ApiError, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, can, signOut };
+  // A warning card for the admin: a vehicle past its booked time still sits on a bay that someone else has booked. When the
+  // reader may move bookings (`canMove`), each free bay gets a button that sends the waiting booking there. `moved(message)` is
+  // called after a move so the page can reload its lists.
+  function bayWarning(w, { canMove, utcOffsetMinutes, moved, failed }) {
+    const at = (ms) => S.formatTime(ms, utcOffsetMinutes);
+    const waiting = w.level === 'waiting';
+    const status = h('p', { class: 'fine', role: 'status' });
+    const buttons = w.free.map((f) =>
+      h(
+        'button',
+        {
+          class: 'btn btn-navy btn-sm',
+          type: 'button',
+          onclick: async (event) => {
+            const btn = event.currentTarget;
+            btn.disabled = true;
+            status.textContent = 'Moving…';
+            try {
+              const r = await post('/api/dashboard/bookings/' + encodeURIComponent(w.next.ref) + '/move-bay', { bay: f.bay });
+              status.textContent = r.message;
+              if (moved) moved(r.message);
+            } catch (err) {
+              btn.disabled = false;
+              status.textContent = err.message;
+              if (failed) failed(err);
+            }
+          },
+        },
+        `Move to bay ${f.bay}`
+      )
+    );
+    return h(
+      'div',
+      { class: 'banner ' + (waiting ? 'bad' : 'warn') },
+      h('b', null, waiting ? `Bay ${w.bay} is blocked. ` : `Bay ${w.bay} may be blocked soon. `),
+      `${w.parked.plate} is still parked there, ${w.parked.overMinutes} min past its booked time (${at(w.parked.endMs)}). `,
+      waiting
+        ? `${w.next.plate} (booking ${w.next.ref}) booked this bay from ${at(w.next.startMs)} and is waiting for it. `
+        : `${w.next.plate} (booking ${w.next.ref}) booked this bay from ${at(w.next.startMs)}, in ${w.next.minutesToStart} min. `,
+      w.free.length
+        ? canMove
+          ? 'Send the waiting customer to a free bay:'
+          : `Free bays for them: ${w.free.map((f) => f.bay).join(', ')}.`
+        : 'No other bay of this kind is free for that time. Ask the parked customer to move their vehicle.',
+      w.free.length && canMove ? h('div', { class: 'banner-actions' }, buttons) : null,
+      status
+    );
+  }
+
+  window.Bayfind = { S, ApiError, bayWarning, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, can, signOut };
 
   // Every page shows the payment-mode strip and who is signed in.
   getConfig().then(applyModeBanner, () => {});

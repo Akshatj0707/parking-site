@@ -51,6 +51,9 @@
       case 'upcoming':
         return { tone: 'info', title: 'Your booking has not started yet', text: `The entry QR code starts working at ${clock(b.startMs - info.rules.earlyMinutes * S.MIN)}. Your booking starts at ${clock(b.startMs)}.` };
       case 'ready':
+        if (g.released) {
+          return { tone: 'warn', title: 'Your bay was released', text: `The vehicle was not scanned in within ${info.rules.noShowMinutes} minutes of the start, so bay ${b.bay} was released for other customers. The amount is not refunded. If you arrive now you can still come in if the bay is free; if someone else has it, the staff give you another free bay.` };
+        }
         return { tone: 'ok', title: 'Show the entry QR at the gate', text: `Your bay is ${b.bay} (${b.zone}). The staff scan the entry QR code once, then you park.` };
       case 'inside': {
         const left = b.endMs - nowMs();
@@ -77,7 +80,10 @@
   function renderBanner() {
     const b = info.booking;
     const msg = bannerFor(info.gate, b);
-    els.banner.replaceChildren(h('div', { class: 'gate-banner ' + msg.tone }, h('h2', null, msg.title), h('p', null, msg.text)));
+    const moved = info.bayMoved && (info.gate.stage === 'upcoming' || info.gate.stage === 'ready');
+    els.banner.replaceChildren(
+      h('div', { class: 'gate-banner ' + msg.tone }, h('h2', null, msg.title), h('p', null, msg.text), moved ? h('p', null, `Your bay was changed from ${info.bayMoved.from} to ${info.bayMoved.to} at ${clock(info.bayMoved.at)}. Go to bay ${b.bay}.`) : null)
+    );
   }
 
   // ---- Paying the extra time -------------------------------------------------------------------------------------------

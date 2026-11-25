@@ -253,6 +253,8 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `CANCEL_LATE_REFUND_PERCENT` | Share of the amount that comes back when the customer cancels later than that, but before the start (0 to 100). After the start a booking cannot be cancelled online. | `50` |
 | `EXTEND_MAX_HOURS` | The most hours a parked customer can add at one time. | `4` |
 | `EXTEND_MAX_TOTAL_HOURS` | A booking, with everything added to it, never gets longer than this many hours. | `8` |
+| `NO_SHOW_RELEASE_MINUTES` | A paid booking whose vehicle has not been scanned in this many minutes after the booked start is a no-show: its bay is released for other customers (the money is kept). The vehicle can still come in later if nobody else got the bay. `0` turns it off (0 to 240). | `30` |
+| `BAY_WARNING_MINUTES` | The dashboard and the scanner page warn when a vehicle that is past its booked time sits on a bay that someone else has booked from now or from within this many minutes (5 to 240). The admin can move the waiting booking to a free bay. | `30` |
 | `RESET_LINK_MINUTES` | How long the “Forgot your password?” email link works (5 to 240). Needs the email settings above and a `PUBLIC_URL`; each link works once. | `30` |
 | `END_REMINDER_MINUTES` | A parked customer with an account gets one email this many minutes before the booked end, with a link to add time (0 to 120; `0` turns it off). Needs the email settings above. | `15` |
 | `PUBLIC_URL` | The website address inside the QR codes, such as `https://parking-site-demo.onrender.com`. Empty: the address the customer used (Render also sets `RENDER_EXTERNAL_URL`). | empty |

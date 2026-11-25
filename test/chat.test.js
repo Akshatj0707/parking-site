@@ -208,7 +208,7 @@ const CASES = [
   ['I want a refund', ['full amount'], ['/refunds']],
   ['I was charged twice, what now', ['do not pay a second time'], ['/refunds']],
   ['how long is my bay held?', ['10 minutes'], ['/refunds']],
-  ['what if I arrive late?', ['stays reserved'], ['/book?vehicle=car']],
+  ['what if I arrive late?', ['30 minutes after the start', 'released'], ['/book?vehicle=car']],
   ['how many hours can I book?', ['1 to 4 hours', '7 days ahead'], ['/book?vehicle=car']],
   ['what are your opening hours?', ['do not have this lot’s opening hours', 'help@bayfind.example'], ['/contact']],
   ['what is your phone number?', ['+91 98765 43210', 'help@bayfind.example', '12 Station Road, Indore'], ['tel:+919876543210', 'mailto:help@bayfind.example', '/contact']],

@@ -438,7 +438,7 @@ test('paying the extra time: one Razorpay order for the right amount, checked si
   assert.equal(s.fake.calls.refunds.length, 0);
 
   const dash = (await s.get('/api/dashboard')).json;
-  assert.deepEqual(dash.gate, { inside: 0, overstaying: 0, paymentDue: 0, extraToday: 80, extraPaymentsToday: 1 });
+  assert.deepEqual(dash.gate, { inside: 0, overstaying: 0, paymentDue: 0, released: 0, extraToday: 80, extraPaymentsToday: 1 });
   assert.equal(dash.revenueToday, 80, 'the booking money does not include the extra time');
 });
 
@@ -776,7 +776,7 @@ test('the pass shows each stage of the visit', async (t) => {
   const info = (await passInfo(s, pass)).json;
   assert.equal(info.booking.bay, 'C001');
   assert.equal(info.booking.rate, 40);
-  assert.deepEqual(info.rules, { earlyMinutes: 15, graceMinutes: 10 });
+  assert.deepEqual(info.rules, { earlyMinutes: 15, graceMinutes: 10, noShowMinutes: 30 });
   assert.equal(info.payments.mode, 'razorpay');
   assert.equal(info.utcOffsetMinutes, 330);
   assert.match(info.qr.in, /^\/api\/pass\/qr\?t=pass\./);

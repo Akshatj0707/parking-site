@@ -160,6 +160,10 @@ function createPageRenderer(config, now) {
       EXTEND_MAX_HOURS: String(config.extend.maxHours),
       EXTEND_MAX_TOTAL_HOURS: String(config.extend.maxTotalHours),
       MAX_ADVANCE_DAYS: String(config.maxAdvanceDays),
+      NO_SHOW_MINUTES: String(config.gate.noShowMinutes),
+      NO_SHOW_TEXT: config.gate.noShowMinutes > 0
+        ? `If your vehicle has not been scanned in ${config.gate.noShowMinutes} minutes after the start, the bay is released for other customers and the amount is not refunded. If you come later and the bay is still free, you can still park.`
+        : 'Your bay is kept for the whole time you booked, even if you arrive late.',
     };
     if (extra) Object.assign(tokens, extra); // the caller escapes these
     if (legal) {
@@ -856,6 +860,22 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
       const said = `${message} ${email.note}`;
       if (outcome === 'refund_failed') return res.status(502).json({ error: 'refund_failed', message: said, email: email.status, booking: row });
       return res.json({ ok: true, outcome, message: said, email: email.status, booking: row });
+    })
+  );
+
+  // Send a booking that has not arrived to another free bay, for example when a vehicle is still parked on its bay.
+  app.post(
+    '/api/dashboard/bookings/:ref/move-bay',
+    operatorGate,
+    needs('bookings:move-bay'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      const ref = String(req.params.ref).toUpperCase();
+      if (!/^[A-Z0-9]{6,12}$/.test(ref)) throw new HttpError(400, 'invalid_ref', 'That booking reference is not valid.');
+      const who = scanner(req);
+      const moved = await bookings.moveBay(ref, req.body && req.body.bay, gate.who(who));
+      res.json({ ok: true, message: `Booking ${moved.booking.ref} now has bay ${moved.to} (it was ${moved.from}). The customer's pass shows the new bay.`, booking: bookings.operatorRow(moved.booking) });
     })
   );
 

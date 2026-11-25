@@ -33,7 +33,7 @@ const S = require('../public/js/shared.js');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
 const { analytics, overview, sampleBookings } = require('./analytics');
-const { gateState } = require('./gate');
+const { gateState, releaseAtOf, isReleased } = require('./gate');
 
 const { MIN, HOUR, DAY, LOT, VEHICLES } = S;
 
@@ -242,7 +242,9 @@ class BookingService {
   // (held for a few minutes, like a bay held for a new booking). Nothing when the booking does not block at all.
   busyWindows(b, now) {
     if (!this.isBlocking(b, now) || leftEarly(b)) return [];
-    const list = [{ startMs: b.startMs, endMs: b.endMs }];
+    // A no-show lets go of its bay: after the no-show time the booking holds it no longer (until a late vehicle is scanned in).
+    const releasedAt = isReleased(b, now, this.config.gate) ? releaseAtOf(b, this.config.gate) : null;
+    const list = [{ startMs: b.startMs, endMs: releasedAt !== null ? releasedAt : b.endMs }];
     if (b.status === 'paid' && !b.exitAt && Array.isArray(b.extensions)) {
       for (const x of b.extensions) if (x.status === 'pending' && x.holdUntil > now) list.push({ startMs: x.fromMs, endMs: x.toMs });
     }
@@ -257,6 +259,86 @@ class BookingService {
       if (this.busyWindows(b, now).some((w) => w.startMs < endMs && startMs < w.endMs)) taken.add(b.bay);
     }
     return taken;
+  }
+
+  // Another booking that holds this booking's bay at some point from `from` to the end of this booking (nothing when the bay is
+  // clear). Used when a vehicle whose bay was released comes in late, and when a booking is moved to another bay.
+  bayBlocker(b, from, now, bay = b.bay) {
+    for (const o of this.store.bookings) {
+      if (o.id === b.id || o.vehicle !== b.vehicle || o.bay !== bay) continue;
+      if (this.busyWindows(o, now).some((w) => w.startMs < b.endMs && from < w.endMs)) return o;
+    }
+    return null;
+  }
+
+  // Bays where a vehicle is physically parked right now (scanned in, not scanned out), whatever their bookings say.
+  occupiedBays(now) {
+    const set = new Set();
+    for (const o of this.store.bookings) if (o.status === 'paid' && o.entryAt && !o.exitAt) set.add(o.bay);
+    return set;
+  }
+
+  // Free bays for booking `b` from `from` to its end, in its own zone first. Never the bay it has now, a bay that is booked in
+  // that time, or a bay with a vehicle still parked in it.
+  freeBaysFor(b, from, now, limit = 4) {
+    const taken = this.takenBays(b.vehicle, from, b.endMs, now, (o) => o.id === b.id);
+    const occupied = this.occupiedBays(now);
+    const lot = LOT[b.vehicle];
+    const home = S.parseBay(b.bay).zone;
+    const free = [];
+    for (let n = 1; n <= lot.total; n++) {
+      const id = S.bayId(b.vehicle, n);
+      if (id !== b.bay && !taken.has(id) && !occupied.has(id)) free.push({ id, zone: S.parseBay(id).zone });
+    }
+    free.sort((x, y) => (x.zone === home ? 0 : 1) - (y.zone === home ? 0 : 1) || (x.id < y.id ? -1 : 1));
+    return free.slice(0, limit).map((f) => ({ bay: f.id, zone: lot.zones[f.zone] }));
+  }
+
+  // Vehicles that are past their booked time and still sit on a bay that someone else has booked, starting now or within the next
+  // few minutes (BAY_WARNING_MINUTES). The admin can send the waiting customer to another free bay (moveBay).
+  bayWarnings(now = this.now()) {
+    const look = this.config.gate.bayWarningMinutes * MIN;
+    const out = [];
+    for (const a of this.store.bookings) {
+      if (a.status !== 'paid' || !a.entryAt || a.exitAt || now < a.endMs) continue;
+      for (const n of this.store.bookings) {
+        if (n.id === a.id || n.status !== 'paid' || n.vehicle !== a.vehicle || n.bay !== a.bay || n.entryAt || n.exitAt) continue;
+        if (n.endMs <= now || n.startMs > now + look || isReleased(n, now, this.config.gate)) continue;
+        const waiting = n.startMs <= now;
+        out.push({
+          bay: a.bay,
+          zone: LOT[a.vehicle].zones[S.parseBay(a.bay).zone],
+          level: waiting ? 'waiting' : 'soon',
+          parked: { ref: a.ref, plate: S.formatPlate(a.plate), endMs: a.endMs, overMinutes: Math.max(0, Math.floor((now - a.endMs) / MIN)) },
+          next: { ref: n.ref, plate: S.formatPlate(n.plate), startMs: n.startMs, endMs: n.endMs, minutesToStart: Math.ceil((n.startMs - now) / MIN) },
+          free: this.freeBaysFor(n, Math.max(n.startMs, now), now),
+        });
+      }
+    }
+    return out.sort((x, y) => x.next.startMs - y.next.startMs);
+  }
+
+  // The admin sends a paid booking that has not arrived yet to another bay of the same kind. The entry and exit QR codes do not
+  // change (they do not name the bay); the customer's pass shows the new bay.
+  async moveBay(ref, newBayInput, actor = 'the admin') {
+    const b = this.store.bookings.find((x) => x.ref === ref);
+    if (!b) throw new HttpError(404, 'unknown_booking', 'We could not find a booking with that reference.');
+    const now = this.now();
+    if (b.status !== 'paid') throw new HttpError(409, 'not_movable', 'Only a paid booking can be moved to another bay.');
+    if (b.entryAt) throw new HttpError(409, 'already_parked', 'This vehicle is already parked, so its booking cannot be moved.');
+    if (b.endMs <= now) throw new HttpError(409, 'not_movable', 'This booking has ended, so it cannot be moved.');
+    const target = S.parseBay(String(newBayInput || '').trim().toUpperCase());
+    if (!target || target.vehicle !== b.vehicle) throw new HttpError(400, 'invalid_bay', 'Choose a bay of the same kind: that bay does not exist for this vehicle.');
+    const bay = S.bayId(b.vehicle, target.n);
+    if (bay === b.bay) throw new HttpError(409, 'same_bay', 'The booking is already on that bay.');
+    if (this.occupiedBays(now).has(bay)) throw new HttpError(409, 'bay_occupied', `Bay ${bay} has a vehicle parked in it right now. Choose another bay.`);
+    if (this.bayBlocker(b, Math.max(b.startMs, now), now, bay)) throw new HttpError(409, 'bay_taken', `Bay ${bay} is booked for that time. Choose another bay.`);
+    const from = b.bay;
+    b.bay = bay;
+    b.bayMoves = [...(Array.isArray(b.bayMoves) ? b.bayMoves : []), { from, to: bay, at: now, by: String(actor).slice(0, 60) }];
+    await this.persistNow();
+    this.log.info(`Booking ${b.ref} (${b.plate}) was moved from bay ${from} to bay ${bay} by ${actor}.`);
+    return { booking: b, from, to: bay };
   }
 
   // A paid or held booking that clashes with `c`: same vehicle number (kind "plate") or same bay (kind "bay").
@@ -998,6 +1080,7 @@ class BookingService {
     let inside = 0;
     let overstaying = 0;
     let waiting = 0;
+    let released = 0;
     let extraTodayPaise = 0;
     let extraTodayCount = 0;
     for (const b of all) {
@@ -1006,6 +1089,7 @@ class BookingService {
       if (stage === 'inside' || stage === 'overstaying' || stage === 'payment_due') inside += 1; // still in until the extra time is paid
       if (stage === 'overstaying') overstaying += 1;
       if (stage === 'payment_due') waiting += 1;
+      if (isReleased(b, now, this.config.gate)) released += 1; // no-shows whose bay is free for others now
       const ov = b.overstay;
       if (ov && ov.status === 'paid' && ov.paidAt >= dayStart && ov.paidAt < dayEnd) {
         extraTodayPaise += ov.amountPaise;
@@ -1039,7 +1123,8 @@ class BookingService {
       paymentsToday,
       recent,
       attention,
-      gate: { inside, overstaying, paymentDue: waiting, extraToday: extraTodayPaise / 100, extraPaymentsToday: extraTodayCount },
+      bayWarnings: this.bayWarnings(now),
+      gate: { inside, overstaying, paymentDue: waiting, released, extraToday: extraTodayPaise / 100, extraPaymentsToday: extraTodayCount },
     };
   }
 

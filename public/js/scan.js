@@ -27,6 +27,7 @@
   let current = null; // the booking whose result is on screen
   let watch = null; // the timer that waits for a customer to pay
   let cfg = null;
+  let canMove = false;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -253,6 +254,7 @@
     } catch (err) {
       return;
     }
+    $('blocked').replaceChildren(...(data.warnings || []).map((w) => B.bayWarning(w, { canMove, utcOffsetMinutes: cfg ? cfg.utcOffsetMinutes : 330, moved: () => loadInside() })));
     $('inside-count').textContent = data.count === 0 ? 'Nobody is inside right now.' : data.count + (data.count === 1 ? ' vehicle' : ' vehicles');
     $('inside').replaceChildren(
       ...data.vehicles.map(({ booking, gate }) => {
@@ -276,6 +278,7 @@
 
   async function init() {
     cfg = await B.getConfig().catch(() => null);
+    canMove = await B.can('bookings:move-bay').catch(() => false);
     loadInside();
     setInterval(() => document.visibilityState === 'visible' && loadInside(), 20000);
     // A normal phone camera opens the address inside the QR code, /scan?t=..., and that is handled here as a scan.
