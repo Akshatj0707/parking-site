@@ -209,6 +209,16 @@ function loadConfig(env = process.env) {
     },
     // One email to a parked customer this many minutes before the booked end (src/reminders.js). 0 turns it off.
     reminder: { minutes: Math.max(0, Math.min(120, Math.floor(number(env.END_REMINDER_MINUTES, 15)))) },
+    // The price suggestions next to the demand forecast (src/forecast.js). They are only shown to the owner; no price ever changes by itself.
+    // A day whose busiest hour is forecast at `highPercent` of the bays or more gets "try a higher rate", `lowPercent` or less gets "try an offer".
+    forecast: (() => {
+      const high = Math.max(50, Math.min(100, Math.floor(number(env.FORECAST_HIGH_PERCENT, 80))));
+      return {
+        highPercent: high,
+        lowPercent: Math.max(0, Math.min(high - 10, Math.floor(number(env.FORECAST_LOW_PERCENT, 25)))),
+        stepPercent: Math.max(1, Math.min(50, Math.floor(number(env.FORECAST_STEP_PERCENT, 10, { min: 1 })))),
+      };
+    })(),
     // A customer who is parked adding more hours to a booking before it ends (src/gate.js, startExtension).
     extend: {
       maxHours: Math.max(1, Math.floor(number(env.EXTEND_MAX_HOURS, 4, { min: 1 }))), // at most this many hours at a time

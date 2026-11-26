@@ -33,6 +33,7 @@ const S = require('../public/js/shared.js');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
 const { analytics, overview, sampleBookings } = require('./analytics');
+const { forecast } = require('./forecast');
 const { gateState, releaseAtOf, isReleased } = require('./gate');
 
 const { MIN, HOUR, DAY, LOT, VEHICLES } = S;
@@ -1376,6 +1377,11 @@ class BookingService {
   // ---- Analytics for the operator ----------------------------------------------------------------------
   analytics(query) {
     return { ...analytics(this.store.bookings, { now: this.now(), config: this.config, query: query || {} }), paymentMode: this.paymentMode, siteName: this.config.siteName };
+  }
+
+  // The demand forecast for the next 7 days, its back-tested error and the price suggestions (src/forecast.js). Nothing here changes a price.
+  forecast() {
+    return { ...forecast(this.store.bookings, { now: this.now(), config: this.config }), paymentMode: this.paymentMode, siteName: this.config.siteName };
   }
 
   // Sample bookings for a demonstration. Only while payments are simulated; they are in the past and marked sample.

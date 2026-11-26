@@ -47,3 +47,13 @@
 @media (prefers-reduced-motion: no-preference) {
   .chart .bar { transition: fill 0.2s ease; }
 }
+
+/* The forecast: a small bar showing how full the bays are expected to be at the busiest hour */
+.fc-sub { font-size: 20px; }
+.fc-meter { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.fc-meter-bar { flex: 1; height: 12px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.fc-meter-fill { display: block; height: 100%; background: var(--blue); border-radius: 999px; }
+.fc-meter-n { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+.fc-ideas li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--navy); }
+.table .sub { display: block; font-size: 13px; color: var(--muted); }
+.table th .sub { text-transform: none; letter-spacing: 0; font-weight: 500; }

@@ -754,6 +754,11 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     res.json(bookings.analytics(req.query));
   });
 
+  // The demand forecast and the price suggestions. Read-only: nothing here can change a price.
+  app.get('/api/dashboard/forecast', operatorGate, needs('analytics:view'), operatorLimit, (req, res) => {
+    res.json(bookings.forecast());
+  });
+
   // Sample bookings so the analytics can be shown before any real customer has booked. Test mode only (see addSampleData).
   app.post('/api/dashboard/sample-data', operatorGate, needs('samples:manage'), ownPagesOnly, operatorLimit, (req, res) => {
     const action = req.body && req.body.action;

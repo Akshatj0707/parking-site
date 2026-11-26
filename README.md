@@ -142,6 +142,14 @@ When a booking is over (the vehicle has left, nothing is left to pay, and any re
 
 `/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). On your own computer (simulated payments only) the page can add about two weeks of clearly marked **sample bookings**; a live site never offers them, so its numbers are always real.
 
+### The demand forecast and price ideas
+
+At the bottom of `/analytics`, **The next 7 days** guesses how busy the lot will be, shows how far off that kind of guess has been lately, and offers price ideas. The method is deliberately plain: a coming day is the weighted average of the same weekday in the last four weeks (last week counts 4, then 3, 2, 1). With fewer than two such weeks it is the average of the last 7 days, and it is never lower than what is already paid for. It needs 7 days of bookings before it shows anything. It uses no weather, holiday or event data.
+
+**How good is it?** The method is run again on each of the last 14 finished days using only the days before that day (a back-test), and compared with what really happened. The page shows the average miss and the **WAPE** (the total miss as a share of the total real figure, so one empty day cannot distort it), next to the same figures for the plainest guess, “the same as last week”. *Confidence* is **low** with under 14 days of bookings or a large miss, **medium** by default, and **high** only with 28 or more days and a miss of 20% or less.
+
+**Price ideas are only ideas.** A day whose busiest hour is forecast at `FORECAST_HIGH_PERCENT` of the bays or more gets “try a higher rate”; a day at `FORECAST_LOW_PERCENT` or less that is also clearly quieter than the rest of the week gets “try an offer”. Nothing in the website changes a price or reads these ideas back; you change the `RATE_` settings yourself. While the confidence is low there are no ideas at all.
+
 ### Free AI answers for the chat (any question)
 
 Without an AI key the chat gives built-in answers about parking (prices, free bays, booking, refunds, accounts, the time) and says honestly when it does not know. To let it answer **any** question, give it an AI key. There are two ways:
@@ -249,6 +257,7 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `BUSINESS_ADDRESS` | The address on the Contact page, on one line (up to 240 characters). It is also printed on the invoice. | empty |
 | `INVOICE_GSTIN` | Your 15-character GST number. With it the invoice is a **Tax invoice** (GST included in the price, shown as CGST + SGST). Without it, or if the number is not in the right shape, the invoice is a plain **Receipt** with no GST, because a seller who is not registered cannot charge GST. | empty |
 | `INVOICE_GST_PERCENT`, `INVOICE_SAC` | The GST rate (whole percent, 0 to 28) and the service code printed on a tax invoice. | `18`, `996743` |
+| `FORECAST_HIGH_PERCENT`, `FORECAST_LOW_PERCENT`, `FORECAST_STEP_PERCENT` | For the price ideas on the Analytics page: how full the busiest hour must be (in percent of the bays) to suggest a higher rate (50 to 100) or an offer (0 to the high limit minus 10), and the size of the suggested change in percent (1 to 50). | `80`, `25`, `10` |
 | `INVOICE_PREFIX` | Up to 4 letters or digits at the start of the invoice number, for example `INV2627-00001` (the number restarts every 1 April). | `INV` |
 | `RATE_CAR_WEEKDAY`, `RATE_CAR_WEEKEND` | 4-wheeler price per hour, in rupees. | `40`, `60` |
 | `RATE_BIKE_WEEKDAY`, `RATE_BIKE_WEEKEND` | 2-wheeler price per hour, in rupees. | `20`, `30` |
