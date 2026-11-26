@@ -14,7 +14,8 @@ const { RENDER_DISK_PATH } = require('./config');
 const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
 const { createAuth, normalizeEmail } = require('./auth');
-const { createGate } = require('./gate');
+const { createGate, qrSvg } = require('./gate');
+const { createInvoices } = require('./invoice');
 const { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, maskEmail } = require('./mail');
 const { createReminders } = require('./reminders');
 const roles = require('./roles');
@@ -262,6 +263,8 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   // for extra parking time.
   const gate = createGate({ config, bookings, razorpay, now, log, signFor: auth.signFor });
   bookings.passPath = (b) => gate.passPath(b);
+  const invoices = createInvoices({ config, bookings, signFor: auth.signFor, userById: (id) => auth.users.byId(id), now });
+  bookings.invoicePath = (b) => (invoices.eligibility(b).ok ? '/invoice?t=' + gate.tokenFor('pass', b) : null);
   bookings.overstayWebhook = (payment) => gate.handleWebhook(payment);
   bookings.overstayReconcile = () => gate.reconcile();
   const mailer = createMailer({ config, log, ...mailOptions });
@@ -272,6 +275,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   app.locals.chat = chat;
   app.locals.auth = auth;
   app.locals.gate = gate;
+  app.locals.invoices = invoices;
   app.locals.reminders = reminders;
   app.locals.mailer = mailer;
   app.disable('x-powered-by');
@@ -969,6 +973,38 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     // The page itself carries nothing of the code (the booking reference is part of the token), so the staff link is plain.
     const staffLink = '<p class="fine">Parking staff? <a href="/login?next=%2Fscan">Sign in to scan</a>.</p>';
     return res.type('html').send(renderPage('spot.html', null, { SPOT_BODY: body, SPOT_STAFF_LINK: staffLink }));
+  });
+
+  // ---- The invoice of a finished booking (the pass link opens it) and the check that a printed copy is genuine ----------
+  const invoiceLimit = createLimiter({ windowMs: 60 * 1000, max: 30 });
+  const invoicePage = (res, status, body) => {
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    return res.status(status).type('html').send(renderPage('invoice.html', null, { INVOICE_BODY: body }));
+  };
+  const invoiceMessage = (tone, title, text) => `<section class="gate-banner ${tone}" role="status"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(text)}</p></section>`;
+  app.get('/invoice', invoiceLimit, (req, res, next) => {
+    (async () => {
+      let booking;
+      try {
+        booking = gate.parse(qrToken(req), ['pass']).booking;
+      } catch (err) {
+        return invoicePage(res, 404, invoiceMessage('bad', 'No invoice', 'This link is not valid. Open your pass again and use the invoice link there.'));
+      }
+      try {
+        const inv = await invoices.issue(booking);
+        const check = `${siteOrigin(req)}/invoice/check?n=${encodeURIComponent(inv.no)}&c=${encodeURIComponent(inv.code)}`;
+        return invoicePage(res, 200, invoices.html(inv, qrSvg(check, 'Invoice check'), check));
+      } catch (err) {
+        if (err instanceof HttpError) return invoicePage(res, err.status, invoiceMessage('warn', 'No invoice yet', err.message));
+        throw err;
+      }
+    })().catch(next);
+  });
+  app.get('/invoice/check', invoiceLimit, (req, res) => {
+    const inv = invoices.verify(typeof req.query.n === 'string' ? req.query.n.trim() : '', typeof req.query.c === 'string' ? req.query.c : '');
+    if (!inv) return invoicePage(res, 404, invoiceMessage('bad', 'Not a match', 'This invoice number and code do not match what this website issued, or the amount was changed. Do not accept it as proof of payment.'));
+    const text = `${inv.kind === 'tax' ? 'Tax invoice' : 'Receipt'} ${inv.no} dated ${inv.date}, issued by ${inv.seller.name} for vehicle ${inv.buyer.plate}: ₹${(inv.totalPaise / 100).toFixed(2)}.${inv.test ? ' This is a test copy: no real payment was made.' : ''}`;
+    return invoicePage(res, 200, invoiceMessage(inv.test ? 'warn' : 'ok', 'This invoice is genuine', text));
   });
 
   // ---- Pages and files ---------------------------------------------------------------------------

@@ -82,7 +82,8 @@
     const msg = bannerFor(info.gate, b);
     const moved = info.bayMoved && (info.gate.stage === 'upcoming' || info.gate.stage === 'ready');
     els.banner.replaceChildren(
-      h('div', { class: 'gate-banner ' + msg.tone }, h('h2', null, msg.title), h('p', null, msg.text), moved ? h('p', null, `Your bay was changed from ${info.bayMoved.from} to ${info.bayMoved.to} at ${clock(info.bayMoved.at)}. Go to bay ${b.bay}.`) : null)
+      h('div', { class: 'gate-banner ' + msg.tone }, h('h2', null, msg.title), h('p', null, msg.text), moved ? h('p', null, `Your bay was changed from ${info.bayMoved.from} to ${info.bayMoved.to} at ${clock(info.bayMoved.at)}. Go to bay ${b.bay}.`) : null),
+      info.invoice ? h('div', { class: 'row' }, h('a', { class: 'btn btn-navy', href: info.invoice }, 'Open invoice (print or save as PDF)')) : null
     );
   }
 

@@ -244,6 +244,7 @@
       h('p', { class: 'fine' }, 'Booking reference ', h('b', null, b.ref)),
       cancelled && cancelledLine(b) ? h('p', { class: 'fine' }, cancelledLine(b)) : null,
       open ? h('a', { class: 'btn btn-navy', href: b.pass }, b.stage === 'inside' ? 'Open QR codes or add more time' : 'Open entry and exit QR codes') : null,
+      b.invoice ? h('a', { class: 'btn btn-outline', href: b.invoice }, 'Open invoice') : null,
       b.cancel ? cancelControl(b, reload) : null);
   }
 

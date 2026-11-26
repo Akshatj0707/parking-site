@@ -35,6 +35,7 @@
 const crypto = require('crypto');
 const qrcode = require('qrcode-generator');
 const S = require('../public/js/shared.js');
+const { eligibility: invoiceEligibility } = require('./invoice');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
 
@@ -248,6 +249,7 @@ class Gate {
       extend: this.extendInfo(b, now),
       extended: this.extendedSummary(b),
       bayMoved: Array.isArray(b.bayMoves) && b.bayMoves.length ? b.bayMoves[b.bayMoves.length - 1] : null,
+      invoice: invoiceEligibility(b, now).ok ? '/invoice?t=' + encodeURIComponent(token) : null, // the invoice is ready once the visit is over
       qr: live ? { in: `/api/pass/qr?t=${encodeURIComponent(token)}&k=in`, out: `/api/pass/qr?t=${encodeURIComponent(token)}&k=out` } : null,
       payments: { mode, keyId: mode === 'razorpay' ? this.config.razorpay.keyId : null },
       siteName: this.config.siteName,

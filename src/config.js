@@ -109,6 +109,22 @@ function loadConfig(env = process.env) {
     // Shown on the Contact page and in the policy pages. Razorpay wants them on a live site.
     businessName: String(env.BUSINESS_NAME || '').trim().slice(0, 80) || siteName,
     businessAddress: String(env.BUSINESS_ADDRESS || '').trim().slice(0, 240),
+    // The invoice of a finished booking. With a valid GST number (INVOICE_GSTIN, 15 characters) it is a tax invoice: prices are
+    // taken as including GST at INVOICE_GST_PERCENT (18 for parking), split into CGST and SGST because the service is given at the
+    // lot. Without one it is a plain receipt, because a seller who is not registered cannot charge GST.
+    invoice: (() => {
+      const gstin = String(env.INVOICE_GSTIN || '').trim().toUpperCase();
+      const prefix = String(env.INVOICE_PREFIX || 'INV').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'INV';
+      const sac = /^[0-9]{6}$/.test(String(env.INVOICE_SAC || '').trim()) ? String(env.INVOICE_SAC).trim() : '996743'; // parking lot services
+      const percent = Math.max(0, Math.min(28, number(env.INVOICE_GST_PERCENT, 18)));
+      return {
+        gstin: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin) ? gstin : '',
+        gstinIgnored: Boolean(gstin) && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin),
+        percent,
+        sac,
+        prefix,
+      };
+    })(),
     supportPhone: String(env.SUPPORT_PHONE || '').trim().slice(0, 30),
 
     razorpay: {

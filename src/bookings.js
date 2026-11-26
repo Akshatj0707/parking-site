@@ -82,6 +82,7 @@ class BookingService {
     // Set by app.js (see gate.js): the address of a booking's pass page, and the two checks for payments of extra parking
     // time. Without them (a plain BookingService) no pass is offered and every payment is an ordinary booking payment.
     this.passPath = null;
+    this.invoicePath = null; // set by app.js: the address of a booking's invoice, or null when it has none yet
     this.overstayWebhook = null;
     this.overstayReconcile = null;
   }
@@ -1365,6 +1366,7 @@ class BookingService {
               })()
             : {}),
           ...(b.extensionPaise ? { extraTimeAmount: b.extensionPaise / 100 } : {}),
+          ...(this.invoicePath && this.invoicePath(b) ? { invoice: this.invoicePath(b) } : {}),
           // the entry and exit QR codes of a paid booking, and where the vehicle is in its visit
           ...(b.status === 'paid' ? { stage: gateState(b, now, this.config.gate).stage, ...(this.passPath ? { pass: this.passPath(b) } : {}) } : {}),
         };

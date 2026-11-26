@@ -134,6 +134,10 @@ By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off`
 
 To try the site on your own computer, `SEED_TEST_CUSTOMER=on` creates a customer, `customer@example.com` with the password `Customer@123`, and shows it on the sign-in page. It is never created once Razorpay keys are set, and it is off unless you ask for it.
 
+### The invoice
+
+When a booking is over (the vehicle has left, nothing is left to pay, and any refund is done) the pass page and **My bookings** show an **Open invoice** button. The invoice page prints on A4, and the browser's print window can also “Save as PDF”. It is a **Tax invoice** when `INVOICE_GSTIN` is set and a **Receipt** otherwise. Every invoice carries a number (consecutive, restarting every April), a verification code and a QR code; opening the QR code shows “This invoice is genuine” only when the number, code and amount are exactly what this website issued, so a changed printout is caught. When payments are not in live Razorpay mode the invoice says **Test copy**.
+
 ### Analytics for the operator
 
 `/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). On your own computer (simulated payments only) the page can add about two weeks of clearly marked **sample bookings**; a live site never offers them, so its numbers are always real.
@@ -242,7 +246,10 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `SUPPORT_EMAIL` | Shown in the footer and in messages that say “contact us”. Empty means “ask at the parking office”. | empty |
 | `BUSINESS_NAME` | Your business name as it is on your Razorpay account. Shown on the Contact, Terms and Privacy pages (up to 80 characters). | the `SITE_NAME` |
 | `SUPPORT_PHONE` | A phone number for the Contact page and the “contact us” lines. Razorpay wants one on a live site. | empty |
-| `BUSINESS_ADDRESS` | The address on the Contact page, on one line (up to 240 characters). | empty |
+| `BUSINESS_ADDRESS` | The address on the Contact page, on one line (up to 240 characters). It is also printed on the invoice. | empty |
+| `INVOICE_GSTIN` | Your 15-character GST number. With it the invoice is a **Tax invoice** (GST included in the price, shown as CGST + SGST). Without it, or if the number is not in the right shape, the invoice is a plain **Receipt** with no GST, because a seller who is not registered cannot charge GST. | empty |
+| `INVOICE_GST_PERCENT`, `INVOICE_SAC` | The GST rate (whole percent, 0 to 28) and the service code printed on a tax invoice. | `18`, `996743` |
+| `INVOICE_PREFIX` | Up to 4 letters or digits at the start of the invoice number, for example `INV2627-00001` (the number restarts every 1 April). | `INV` |
 | `RATE_CAR_WEEKDAY`, `RATE_CAR_WEEKEND` | 4-wheeler price per hour, in rupees. | `40`, `60` |
 | `RATE_BIKE_WEEKDAY`, `RATE_BIKE_WEEKEND` | 2-wheeler price per hour, in rupees. | `20`, `30` |
 | `WEEKEND_DAYS` | Which days use the weekend price: `0` = Sunday … `6` = Saturday. | `0,6` |
@@ -354,7 +361,7 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 - **No protection against people who start bookings and never pay**, which holds a bay for 10 minutes each time. There is a limit on how many attempts one visitor can make, but add a CAPTCHA or phone verification before a large public launch.
 - **No barrier, camera or sensor is connected.** The entry and exit QR codes are scanned by a person with a phone (section 3, “Entry and exit QR codes”). Nothing opens a gate by itself, and a vehicle that never gets scanned is not noticed.
 - **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database.
-- **No tax invoices.** If your business needs GST invoices, talk to your accountant; Razorpay's Dashboard keeps the payment records.
+- **Invoices are simple.** The invoice page makes a GST tax invoice (or a receipt when no GST number is set) and checks its own printouts, but it does not file GST returns or keep your books. Ask your accountant to check the wording before you rely on it for tax.
 - **The policy pages are plain-language starting points, not legal advice.** Read each one and change what does not match how you run the lot, above all the cancellation rule on `/refunds`. Have a lawyer or your accountant look at them before you take real money. They say nothing about who is responsible for a vehicle or what is left inside it, and nothing about GST: ask your accountant whether GST applies to your parking and how it has to be shown. The words are in the `public/legal` folder (plain HTML). When you change a page, also change the “Last updated” date on it (the line that starts with `<p class="updated">`). After a change, upload the folder again and run the setup (DEPLOY.md, step 11).
 
 ---
