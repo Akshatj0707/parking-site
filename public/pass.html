@@ -8,6 +8,8 @@
   <title>Your parking pass · {{SITE_NAME}}</title>
   <meta name="description" content="The entry and exit QR codes of your parking booking.">
   <meta name="theme-color" content="#0b1530">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -37,6 +39,7 @@
     <p class="lead">Show the <b>entry</b> QR code to the staff when you drive in, and the <b>exit</b> QR code when you leave. Keep this page, or take a screenshot.</p>
   </div>
 
+  <div id="pass-offline"></div>
   <div class="stack g16" id="pass-banner" role="status" aria-live="polite"><p class="muted">Loading your pass…</p></div>
   <div class="stack g16" id="pass-pay" aria-live="polite"></div>
   <div class="stack g16" id="pass-qr"></div>

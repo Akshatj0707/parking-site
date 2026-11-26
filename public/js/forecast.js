@@ -92,6 +92,7 @@
     const [word, cls] = CONFIDENCE[d.confidence];
     $('fc-note').textContent = `Updated ${lotTime(d.serverTime, d)} (lot time)`;
     body.replaceChildren(
+      ...[
       h('p', null, h('span', { class: 'badge ' + cls }, word), ' ',
         `Based on ${plural(d.history.days, 'day')} of bookings. ` + qualityText(d)),
       d.sample.present ? h('p', { class: 'msg info', role: 'note' }, 'The numbers include sample bookings, which are made up. Real bookings will change them.') : null,
@@ -101,6 +102,7 @@
         h('summary', null, 'How good is the forecast, in detail'),
         accuracyTable(d),
         h('p', { class: 'fine' }, 'Each of the last finished days was forecast again using only the days before it, then compared with what really happened.'))
+      ].filter(Boolean) // replaceChildren would write a null as the word "null"
     );
   }
 

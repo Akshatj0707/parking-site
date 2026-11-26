@@ -334,4 +334,33 @@
   // Every page shows the payment-mode strip and who is signed in.
   getConfig().then(applyModeBanner, () => {});
   applyAuthNav();
+
+  // The installable app. The service worker (sw.js) keeps the pass page working with no signal; where the browser offers to
+  // install the site as an app, a link in the footer lets the customer do it. (On an iPhone: Share, then Add to Home Screen.)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {}); // no secure connection or a blocked worker: the site works as before
+    });
+  }
+  let installOffer = null;
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    installOffer = event;
+    const where = document.querySelector('.site-footer .copy');
+    if (!where || where.querySelector('.install-link')) return;
+    const link = h('button', { class: 'install-link', type: 'button' }, 'Install the app');
+    link.addEventListener('click', async () => {
+      if (!installOffer) return;
+      const offer = installOffer;
+      installOffer = null;
+      link.remove();
+      offer.prompt();
+      await offer.userChoice.catch(() => {});
+    });
+    where.append(link);
+  });
+  window.addEventListener('appinstalled', () => {
+    installOffer = null;
+    document.querySelectorAll('.install-link').forEach((link) => link.remove());
+  });
 })();

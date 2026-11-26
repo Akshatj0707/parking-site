@@ -38,7 +38,7 @@
       }
       return;
     }
-    offset = info.serverTime - Date.now();
+    if (!info.offline) offset = info.serverTime - Date.now(); // a saved copy has an old server time: keep this phone's own clock then
     render();
   }
 
@@ -83,7 +83,7 @@
     const moved = info.bayMoved && (info.gate.stage === 'upcoming' || info.gate.stage === 'ready');
     els.banner.replaceChildren(
       h('div', { class: 'gate-banner ' + msg.tone }, h('h2', null, msg.title), h('p', null, msg.text), moved ? h('p', null, `Your bay was changed from ${info.bayMoved.from} to ${info.bayMoved.to} at ${clock(info.bayMoved.at)}. Go to bay ${b.bay}.`) : null),
-      info.invoice ? h('div', { class: 'row' }, h('a', { class: 'btn btn-navy', href: info.invoice }, 'Open invoice (print or save as PDF)')) : null
+      ...(info.invoice ? [h('div', { class: 'row' }, h('a', { class: 'btn btn-navy', href: info.invoice }, 'Open invoice (print or save as PDF)'))] : []) // never pass null to replaceChildren: it would be written as the word "null"
     );
   }
 
@@ -357,8 +357,22 @@
     );
   }
 
+  // With no signal the service worker answers with the copy saved the last time this pass was open, marked offline.
+  function renderOffline() {
+    const box = $('pass-offline');
+    if (!info.offline) return box.replaceChildren();
+    box.replaceChildren(
+      h(
+        'p',
+        { class: 'msg info', role: 'status' },
+        `You are offline. This is the copy of your pass saved at ${clock(info.serverTime)}. The QR codes still work, because the gate staff scan them on their own phone, but the status shown here may be out of date. It updates by itself when you are back online.`
+      )
+    );
+  }
+
   function render() {
     $('grace').textContent = String(info.rules.graceMinutes);
+    renderOffline();
     renderBanner();
     renderPay();
     renderQr();

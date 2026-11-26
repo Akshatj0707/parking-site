@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>You are offline · {{SITE_NAME}}</title>
+  <meta name="description" content="There is no internet connection. Your saved parking passes still open.">
+  <meta name="theme-color" content="#0b1530">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/gate.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+  </div>
+</header>
+
+<main id="main" class="wrap-narrow main-pad">
+  <div class="stack g16">
+    <h1>You are offline</h1>
+    <p>There is no internet connection right now, so this page cannot load. Your parking pass can still be shown if you opened it on this phone before.</p>
+    <div id="saved" class="stack g12" aria-live="polite"><p class="muted">Looking for saved passes…</p></div>
+    <p><button class="btn btn-navy" type="button" id="retry">Try again</button></p>
+    <p class="fine">A saved pass shows the QR codes as they were when you last opened it. It may not show the newest status until you are back online. The gate staff scan the QR code on their own phone, so a pass works at the gate even if yours has no signal.</p>
+  </div>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/offline.js"></script>
+</body>
+</html>

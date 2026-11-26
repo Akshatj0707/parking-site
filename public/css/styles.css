@@ -485,3 +485,4 @@ a[href^="tel:"] { white-space: nowrap; }
 .my-booking .btn { align-self: flex-start; margin-top: 8px; min-height: 44px; }
 .my-booking .cancel-box { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
 .my-booking .cancel-box .row { display: flex; flex-wrap: wrap; gap: 10px; }
+.site-footer .copy .install-link { background: none; border: 0; padding: 0; color: #fff; font: inherit; text-decoration: underline; cursor: pointer; text-align: left; }

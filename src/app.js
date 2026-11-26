@@ -34,6 +34,7 @@ const PAGES = {
   '/officials': 'officials.html',
   '/scan': 'scan.html',
   '/pass': 'pass.html',
+  '/offline': 'offline.html',
   '/login': 'auth.html',
   '/signup': 'auth.html',
   '/account': 'auth.html',
@@ -1037,6 +1038,44 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     );
   });
   app.get('/favicon.ico', (req, res) => res.status(204).end());
+
+  // ---- The installable app: the manifest, the service worker (public/sw.js) and the offline page ----------------------
+  // The service worker is served from the root so that it covers every page. Its build name changes with each release, so a new
+  // release replaces the files it saved; passes saved on a phone are kept.
+  const BUILD_ID = String(process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || process.env.GIT_COMMIT || require('../package.json').version).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 12) || 'dev';
+  const swSource = fs.readFileSync(path.join(PUBLIC_DIR, 'sw.js'), 'utf8').replace('{{BUILD_ID}}', BUILD_ID);
+  app.get('/sw.js', (req, res) => {
+    res.set({ 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });
+    res.type('application/javascript').send(swSource);
+  });
+  app.get('/manifest.webmanifest', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('application/manifest+json').send(
+      JSON.stringify({
+        id: '/',
+        name: config.siteName,
+        short_name: config.siteName.slice(0, 12),
+        description: 'Book a parking bay, pay online and show your entry and exit QR codes at the gate.',
+        lang: 'en-IN',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#0b1530',
+        theme_color: '#0b1530',
+        categories: ['travel', 'utilities'],
+        icons: [
+          { src: '/img/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/img/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/img/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+        shortcuts: [
+          { name: 'Book a bay', url: '/book' },
+          { name: 'Find my booking', url: '/lookup' },
+        ],
+      })
+    );
+  });
 
   // Only these folders are public. The HTML pages are served by the routes above, never as raw files.
   for (const folder of ['css', 'js', 'img', 'fonts']) {

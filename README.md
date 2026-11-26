@@ -134,6 +134,15 @@ By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off`
 
 To try the site on your own computer, `SEED_TEST_CUSTOMER=on` creates a customer, `customer@example.com` with the password `Customer@123`, and shows it on the sign-in page. It is never created once Razorpay keys are set, and it is off unless you ask for it.
 
+### Install as an app, and the pass with no signal
+
+The site is a Progressive Web App: a browser that supports it offers **Install the app** in the page footer (on an iPhone: Share, then **Add to Home Screen**), and it then opens full screen like an app, with shortcuts to **Book a bay** and **Find my booking**. A **service worker** (`public/sw.js`, served as `/sw.js`) also saves, on the customer's own phone:
+
+- the pass page and the files it needs, and a copy of each pass the customer opened (the last answer of `/api/pass` and the two QR images; at most 30 files, none older than 7 days). With no signal (a basement car park, say) the pass still opens and shows its QR codes, with a note that it is a saved copy and may be out of date. The gate staff scan the QR on their own phone, so the pass works at the gate either way. Any other page shows an **offline page** that lists the saved passes.
+- Nothing else. Payments, sign-in, accounts, invoices, the owner's pages and every other `/api/` address are never answered or saved by the worker, and Razorpay (another site) is never touched.
+
+It needs `https://` (Render and any normal host provide it; `http://localhost` also works for testing). The icons are the PNG files in `public/img/` (`icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`); replace them to use your own logo. The app name comes from `SITE_NAME`. Each release replaces the files the worker saved (the release is named from `RENDER_GIT_COMMIT` on Render).
+
 ### The invoice
 
 When a booking is over (the vehicle has left, nothing is left to pay, and any refund is done) the pass page and **My bookings** show an **Open invoice** button. The invoice page prints on A4, and the browser's print window can also “Save as PDF”. It is a **Tax invoice** when `INVOICE_GSTIN` is set and a **Receipt** otherwise. Every invoice carries a number (consecutive, restarting every April), a verification code and a QR code; opening the QR code shows “This invoice is genuine” only when the number, code and amount are exactly what this website issued, so a changed printout is caught. When payments are not in live Razorpay mode the invoice says **Test copy**.
