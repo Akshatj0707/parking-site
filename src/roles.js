@@ -1,12 +1,15 @@
 'use strict';
 
 /*
- * Role-based access control (RBAC). There are exactly three roles and each one has a fixed list of permissions:
+ * Role-based access control (RBAC). There are exactly four roles and each one has a fixed list of permissions:
  *
  *   customer  anyone who signs up. Books bays and sees ONLY their own bookings.
  *   official  a government official. Sees ALL the data (every booking, every customer, the money, the busiest hours, the
  *             payment records, the spreadsheet download) but changes nothing: no refunds, no settings, no accounts. The
  *             owner creates these logins (see src/auth.js); nobody can sign up as an official.
+ *   attendant gate staff. Scans customers in and out, collects an extra charge another way (for example cash) and moves a
+ *             booking to another bay. Sees no money figures, no customer list and cannot refund, cancel or waive a charge.
+ *             The owner creates these logins; nobody can sign up as an attendant.
  *   admin     the owner / operator (OPERATOR_USER and OPERATOR_PASSWORD in the server settings). Sees everything and is the
  *             only one who may refund, run the setup check and create or remove official logins. Nobody can sign up as admin.
  *
@@ -17,6 +20,7 @@
 const PERMISSIONS = {
   'booking:create': 'Book a parking bay',
   'booking:view-own': 'See their own bookings',
+  'booking:cancel-own': 'Cancel their own booking before it starts (the cancellation rule decides how much is refunded)',
   'bookings:view-all': 'See every booking, with payment details',
   'bookings:cancel-refund': 'Cancel a booking and refund the customer',
   'bookings:export': 'Download all bookings as a spreadsheet (CSV)',
@@ -24,25 +28,33 @@ const PERMISSIONS = {
   'analytics:view': 'See money collected, the busiest hours and the other business numbers',
   'payments:view': 'See the Razorpay connection and payment details',
   'system:view': 'Run the setup check',
-  'accounts:manage': 'Create and remove the logins of government officials',
+  'accounts:manage': 'Create and remove the logins of government officials and gate attendants',
   'samples:manage': 'Add or remove sample bookings (test mode only)',
+  'gate:scan': 'Scan the entry and exit QR codes of customers at the lot, and mark an extra charge as collected another way',
+  'gate:waive': 'Waive the extra charge of a vehicle that stayed too long',
+  'bookings:move-bay': 'Send a booking that has not arrived yet to another free bay (when a vehicle is still parked on its bay)',
 };
 
 const ROLES = {
   customer: {
     label: 'Customer',
-    summary: 'Books a bay and sees only their own bookings.',
-    permissions: ['booking:create', 'booking:view-own'],
+    summary: 'Books a bay, sees only their own bookings and can cancel them before they start.',
+    permissions: ['booking:create', 'booking:view-own', 'booking:cancel-own'],
   },
   official: {
     label: 'Government official',
     summary: 'Sees all the data (every booking, every customer, all payments and numbers) and can download it. Cannot change anything.',
     permissions: ['bookings:view-all', 'bookings:export', 'customers:view', 'analytics:view', 'payments:view'],
   },
+  attendant: {
+    label: 'Gate attendant',
+    summary: 'Works at the gate: scans customers in and out, marks an extra charge as collected, and moves a booking to another bay. Sees no money figures and no customer list, and cannot refund or waive a charge.',
+    permissions: ['gate:scan', 'bookings:move-bay'],
+  },
   admin: {
     label: 'Admin (owner)',
-    summary: 'Full access: all the data, refunds, the settings check, and the logins of government officials.',
-    permissions: ['booking:create', 'bookings:view-all', 'bookings:cancel-refund', 'bookings:export', 'customers:view', 'analytics:view', 'payments:view', 'system:view', 'accounts:manage', 'samples:manage'],
+    summary: 'Full access: all the data, refunds, scanning customers in and out at the lot, waiving charges, the settings check, and the logins of government officials and gate attendants.',
+    permissions: ['booking:create', 'bookings:view-all', 'bookings:cancel-refund', 'bookings:export', 'customers:view', 'analytics:view', 'payments:view', 'system:view', 'accounts:manage', 'samples:manage', 'gate:scan', 'gate:waive', 'bookings:move-bay'],
   },
 };
 

@@ -6,6 +6,8 @@
   <meta name="robots" content="noindex">
   <title>Analytics · {{SITE_NAME}}</title>
   <meta name="theme-color" content="#0b1530">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -95,6 +97,14 @@
     </section>
   </div>
 
+  <section class="panel" aria-labelledby="fc-title">
+    <div class="panel-head">
+      <h2 id="fc-title">The next 7 days</h2>
+      <p class="fine" id="fc-note"></p>
+    </div>
+    <div class="stack g16" id="fc-body" aria-live="polite"><p class="muted">Loading the forecast…</p></div>
+  </section>
+
   <section class="panel" id="sample-panel" aria-labelledby="sample-title" hidden>
     <div class="panel-head">
       <h2 id="sample-title">Sample bookings</h2>
@@ -111,6 +121,7 @@
       <li><b>Vehicles parked</b> is worked out from bookings, not from sensors: a vehicle counts for the part of the hour that its paid booking covers. For a period of several days it is the average for one day.</li>
       <li><b>Arrivals</b> are paid bookings that start in that hour (an average per day for a period of several days).</li>
       <li>The busiest hour is shown in yellow with an outline. The same numbers are in the table below each chart.</li>
+      <li><b>The next 7 days</b> is a forecast, not a promise. A coming day is guessed from the same weekday in the last four weeks (last week counts most), and never goes below what is already booked. The page also shows how far off the same method was on the last finished days. It does not know about weather, holidays or events. Price ideas are only ideas: nothing here changes a price.</li>
     </ul>
   </section>
 </main>
@@ -131,5 +142,6 @@
 <script src="/js/shared.js"></script>
 <script src="/js/common.js"></script>
 <script src="/js/analytics.js"></script>
+<script src="/js/forecast.js"></script>
 </body>
 </html>

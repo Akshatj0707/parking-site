@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="same-origin">
+  <title>Your parking pass · {{SITE_NAME}}</title>
+  <meta name="description" content="The entry and exit QR codes of your parking booking.">
+  <meta name="theme-color" content="#0b1530">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/gate.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<noscript><p class="mode-banner">Please turn on JavaScript to see your parking pass.</p></noscript>
+<div id="mode-banner" class="mode-banner" role="status" hidden></div>
+
+<header class="site-header on-dark">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="{{SITE_NAME}} home"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+    <nav class="nav" aria-label="Main">
+      <a class="opt" href="/lookup">Find my booking</a>
+      <a class="nav-cta" href="/book">Book a bay</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap-narrow main-pad">
+  <div class="stack g12 rise">
+    <p class="eyebrow">Your parking pass</p>
+    <h1 class="h1">Entry and exit</h1>
+    <p class="lead">Show the <b>entry</b> QR code to the staff when you drive in, and the <b>exit</b> QR code when you leave. Keep this page, or take a screenshot.</p>
+  </div>
+
+  <div id="pass-offline"></div>
+  <div class="stack g16" id="pass-banner" role="status" aria-live="polite"><p class="muted">Loading your pass…</p></div>
+  <div class="stack g16" id="pass-pay" aria-live="polite"></div>
+  <div class="stack g16" id="pass-qr"></div>
+  <div class="stack g16" id="pass-details"></div>
+
+  <section class="panel" aria-labelledby="how-title">
+    <h2 id="how-title">How it works</h2>
+    <ol class="steps">
+      <li>Come to the lot at your booked time. The entry QR code starts working a few minutes before it begins.</li>
+      <li>At the gate, show the <b>entry QR</b> to the staff. They scan it with their phone and send you to your bay. It works once.</li>
+      <li>When you leave, show the <b>exit QR</b>. If you leave within the booked time, that is all.</li>
+      <li>Need more time? While you are parked, and before your booked time ends, add hours in the “Need more time?” box on this page, if the bay is free. If you stay past the end without adding time, every extra hour is charged at your booking’s hourly rate (the first <span id="grace">10</span> minutes are free). You pay it here on your phone, and then you can drive out.</li>
+    </ol>
+  </section>
+</main>
+
+<footer class="site-footer on-dark">
+  <div class="bar">
+    <div class="stack g12">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{LOGO_LETTER}}</span>{{SITE_NAME}}</a>
+      <div class="copy">
+        <span>© {{YEAR}} {{SITE_NAME}}</span>
+        <span>Payments are processed by Razorpay.</span>
+      </div>
+    </div>
+    {{FOOTER_NAV}}
+  </div>
+</footer>
+
+<script src="/js/shared.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/pass.js"></script>
+</body>
+</html>

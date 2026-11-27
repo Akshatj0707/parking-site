@@ -326,12 +326,15 @@ const TOPICS = [
   ]],
 ];
 
-// "MP 09 AB 1234" anywhere in a message, as a normal vehicle number (or null).
+// "MP 09 AB 1234" or a Bharat series "22 BH 1234 AA" anywhere in a message, as a vehicle number (or null).
 function findPlate(text) {
-  const m = /\b([a-z]{2})[\s-]?(\d{1,2})[\s-]?([a-z]{0,3})[\s-]?(\d{4})\b/i.exec(text);
-  if (!m) return null;
-  const plate = S.normalizePlate(m.slice(1).join(''));
-  return S.isValidPlate(plate) ? plate : null;
+  for (const re of [/\b([a-z]{2})[\s-]?(\d{1,2})[\s-]?([a-z]{0,3})[\s-]?(\d{4})\b/i, /\b(\d{2})[\s-]?(bh)[\s-]?(\d{4})[\s-]?([a-z]{1,2})\b/i]) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const plate = S.normalizePlate(m.slice(1).join(''));
+    if (S.isValidPlate(plate)) return plate;
+  }
+  return null;
 }
 
 const WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4 };
@@ -543,19 +546,35 @@ function answerLookup(u) {
   };
 }
 
+// The cancellation rule in words, from the settings (see config.cancel).
+function cancelRuleLines(config) {
+  const { freeHours, graceMinutes, lateRefundPercent } = config.cancel;
+  const late = lateRefundPercent >= 100 ? 'the full amount comes back too' : lateRefundPercent <= 0 ? 'nothing is refunded' : `${lateRefundPercent}% of the amount comes back`;
+  return lines(
+    `- At least ${freeHours} hours before the start, or within ${graceMinutes} minutes of paying: the full amount comes back.`,
+    `- Later than that, but before the start: ${late}.`,
+    '- After it has started: it cannot be cancelled on the website, and we do not normally refund, unless we could not give you the bay you paid for.'
+  );
+}
+
 function answerCancel(u, ctx) {
   const { config } = ctx;
   return {
     text: para(
-      `You cannot cancel or change a booking on the website yet. To cancel, contact us as soon as you can with your vehicle number or booking reference. ${supportText(config)}`,
-      lines(
-        '- Before your booking starts: we cancel it and refund the full amount.',
-        '- After it has started: we do not normally refund, unless we could not give you the bay you paid for.'
-      ),
+      `You can cancel your own booking on the website: sign in, open My bookings and press “Cancel this booking”. The page shows how much comes back before you confirm. If you booked without an account, contact us with your vehicle number or booking reference. ${supportText(config)}`,
+      cancelRuleLines(config),
       'If you paid but did not get a bay, the money is sent back to you automatically, usually within 5 to 10 working days. Please do not pay a second time.'
     ),
     keys: ['refunds', ...contactKeys(config)],
   };
+}
+
+// What happens to a bay when the customer does not turn up (the NO_SHOW_RELEASE_MINUTES setting).
+function noShowSentence(config) {
+  const n = config.gate.noShowMinutes;
+  return n > 0
+    ? `Your bay is kept for you for ${n} minutes after the start. If the vehicle has not been scanned in by then, the bay is released for other customers and the amount is not refunded; if you arrive later and the bay is still free, you can still park.`
+    : 'Your bay stays reserved for the whole time you booked, even if you arrive late.';
 }
 
 function answerAccount(u, ctx) {
@@ -566,7 +585,9 @@ function answerAccount(u, ctx) {
         ? 'Customers sign in, or create a free account with a name, an email and a password, before booking. After that, My bookings shows every booking you made.'
         : 'You can book without an account, but with a free account (a name, an email and a password) My bookings shows every booking you made.',
       'The lot operator signs in on the same Sign in page with the operator user name; that gives the dashboard and the analytics. A customer account cannot open those pages.',
-      'If you forgot your password, please contact the lot: nobody who runs the site can see your password.'
+      config.email && config.email.enabled
+        ? 'If you forgot your password, open Sign in and press “Forgot your password?”: we email a link that lets you choose a new one. It works for a short time and only once.'
+        : 'If you forgot your password, please contact the lot: nobody who runs the site can see your password.'
     ),
     keys: ['login', 'signup', 'account'],
   };
@@ -618,10 +639,10 @@ const ANSWERS = {
     ),
     keys: ['refunds'],
   }),
-  late: () => ({
+  late: (u, ctx) => ({
     text: para(
-      'Your bay stays reserved for the whole time you booked, even if you arrive late. The booking ends at the end time you chose.',
-      'To stay longer, make a second booking that starts when your first one ends. You can pick the same bay if it is free.'
+      noShowSentence(ctx.config) + ' The booking ends at the end time you chose.',
+      `To stay longer while you are parked, open your pass (My bookings, then the QR codes) before your time ends and add up to ${ctx.config.extend.maxHours} more hours, if the bay is free. If you stay past the end without adding time, the first ${ctx.config.gate.graceMinutes} minutes are free and after that every started hour is charged, which you pay on your pass before you drive out. You can also make a second booking that starts when the first one ends.`
     ),
     keys: ['book-car', 'book-bike'],
   }),
@@ -766,9 +787,9 @@ function systemPrompt(ctx) {
     `- A booking is ${minH} to ${maxH} whole hours. It starts on the hour or the half hour, up to ${config.maxAdvanceDays} days ahead. ${config.auth && config.auth.customerLoginRequired ? 'A visitor signs in or creates a free account (Sign in /login, Create account /signup) before booking, and My bookings (/account) lists their bookings.' : 'No account is needed, but a free account (/signup) lets a customer see their bookings at /account.'} The lot operator signs in on the same Sign in page and uses a private dashboard and analytics page; never reveal how to get operator access or anything the operator sees.`,
     '- How to book: on the booking page the visitor chooses car or two-wheeler, types the vehicle number (for example MP 09 AB 1234), picks the day, start time and length, chooses a zone and a free bay, and pays online with Razorpay.',
     `- While a visitor pays, the bay is held for ${config.holdMinutes} minutes. After that it goes back on sale and they can start again.`,
-    '- Arriving late: the bay stays reserved for the whole booked time, and the booking ends at the booked end time. To stay longer, make a second booking that starts when the first ends (the same bay can be chosen if it is free).',
+    `- Arriving late: ${noShowSentence(config)} The booking ends at the booked end time. To stay longer, a parked customer can add up to ${config.extend.maxHours} more hours from their pass page before the time ends (if the bay is free), or make a second booking that starts when the first ends. Staying past the end without adding time costs every started hour after ${config.gate.graceMinutes} free minutes, paid on the pass page before leaving.`,
     '- Finding a booking: the Find my booking page, with the vehicle number, shows the bay, the time and the booking reference of a booking that has not ended. It never shows names, phone numbers or payment details.',
-    '- Cancelling and refunds: not possible on the website. The visitor must contact the lot with their vehicle number or booking reference. Before a booking starts it is cancelled and refunded in full. After it has started there is normally no refund, unless the lot could not give the bay that was paid for. If a payment arrives but cannot become a booking, it is refunded automatically in full, and refunds show up in 5 to 10 working days. Never promise a cancellation or a refund yourself.',
+    `- Cancelling and refunds: a signed-in customer cancels their own booking in My bookings (/account) until it starts; the page shows the refund before they confirm. At least ${config.cancel.freeHours} hours before the start, or within ${config.cancel.graceMinutes} minutes of paying, the full amount comes back; later than that but before the start ${config.cancel.lateRefundPercent}% comes back. After it has started, or for a booking made without an account, the visitor must contact the lot with their vehicle number or booking reference, and there is normally no refund unless the lot could not give the bay that was paid for. If a payment arrives but cannot become a booking, it is refunded automatically in full, and refunds show up in 5 to 10 working days. Never promise a cancellation or a refund yourself.`,
     '- Payments go through Razorpay’s secure window, with the payment methods it shows. Card, UPI and bank details never reach this website.',
     `- Contact: ${supportText(config)}${config.businessAddress ? ` Address: ${config.businessAddress}.` : ''}`,
     note ? `- Payment mode: ${note}` : '',

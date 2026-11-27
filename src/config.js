@@ -109,6 +109,22 @@ function loadConfig(env = process.env) {
     // Shown on the Contact page and in the policy pages. Razorpay wants them on a live site.
     businessName: String(env.BUSINESS_NAME || '').trim().slice(0, 80) || siteName,
     businessAddress: String(env.BUSINESS_ADDRESS || '').trim().slice(0, 240),
+    // The invoice of a finished booking. With a valid GST number (INVOICE_GSTIN, 15 characters) it is a tax invoice: prices are
+    // taken as including GST at INVOICE_GST_PERCENT (18 for parking), split into CGST and SGST because the service is given at the
+    // lot. Without one it is a plain receipt, because a seller who is not registered cannot charge GST.
+    invoice: (() => {
+      const gstin = String(env.INVOICE_GSTIN || '').trim().toUpperCase();
+      const prefix = String(env.INVOICE_PREFIX || 'INV').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'INV';
+      const sac = /^[0-9]{6}$/.test(String(env.INVOICE_SAC || '').trim()) ? String(env.INVOICE_SAC).trim() : '996743'; // parking lot services
+      const percent = Math.max(0, Math.min(28, number(env.INVOICE_GST_PERCENT, 18)));
+      return {
+        gstin: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin) ? gstin : '',
+        gstinIgnored: Boolean(gstin) && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin),
+        percent,
+        sac,
+        prefix,
+      };
+    })(),
     supportPhone: String(env.SUPPORT_PHONE || '').trim().slice(0, 30),
 
     razorpay: {
@@ -141,6 +157,8 @@ function loadConfig(env = process.env) {
       customerLoginRequired: !isOff(env.CUSTOMER_LOGIN_REQUIRED),
       // Signs the sign-in cookies. Optional: when empty, a random key is kept next to the bookings.
       sessionSecret: String(env.SESSION_SECRET || '').trim(),
+      // How long the link in a "forgot my password" email works (it also stops working once it has been used).
+      resetMinutes: Math.max(5, Math.min(240, Math.floor(number(env.RESET_LINK_MINUTES, 30)))),
       // For trying the site on your own computer: SEED_TEST_CUSTOMER=on creates a customer with a published password. It is
       // never created when Razorpay keys are set (a real site), and it is off unless asked for.
       seedTestCustomer: !(keyId && keySecret) && isOn(env.SEED_TEST_CUSTOMER),
@@ -180,6 +198,50 @@ function loadConfig(env = process.env) {
     startGraceMinutes: 15,
     maxAdvanceDays: 7,
     holdMinutes: number(env.HOLD_MINUTES, 10, { min: 1 }),
+
+    // A customer cancelling their own paid booking before it starts (src/bookings.js, customerCancel). The full amount comes
+    // back when the cancellation is at least freeHours before the start, or within graceMinutes of paying. Later than that
+    // (but still before the start) lateRefundPercent of the amount comes back. After the start it cannot be cancelled online.
+    cancel: {
+      freeHours: number(env.CANCEL_FREE_HOURS, 2),
+      graceMinutes: number(env.CANCEL_GRACE_MINUTES, 10),
+      lateRefundPercent: Math.min(100, Math.floor(number(env.CANCEL_LATE_REFUND_PERCENT, 50))),
+    },
+    // One email to a parked customer this many minutes before the booked end (src/reminders.js). 0 turns it off.
+    reminder: { minutes: Math.max(0, Math.min(120, Math.floor(number(env.END_REMINDER_MINUTES, 15)))) },
+    // The price suggestions next to the demand forecast (src/forecast.js). They are only shown to the owner; no price ever changes by itself.
+    // A day whose busiest hour is forecast at `highPercent` of the bays or more gets "try a higher rate", `lowPercent` or less gets "try an offer".
+    forecast: (() => {
+      const high = Math.max(50, Math.min(100, Math.floor(number(env.FORECAST_HIGH_PERCENT, 80))));
+      return {
+        highPercent: high,
+        lowPercent: Math.max(0, Math.min(high - 10, Math.floor(number(env.FORECAST_LOW_PERCENT, 25)))),
+        stepPercent: Math.max(1, Math.min(50, Math.floor(number(env.FORECAST_STEP_PERCENT, 10, { min: 1 })))),
+      };
+    })(),
+    // A customer who is parked adding more hours to a booking before it ends (src/gate.js, startExtension).
+    extend: {
+      maxHours: Math.max(1, Math.floor(number(env.EXTEND_MAX_HOURS, 4, { min: 1 }))), // at most this many hours at a time
+      maxTotalHours: Math.max(1, Math.floor(number(env.EXTEND_MAX_TOTAL_HOURS, 8, { min: 1 }))), // and a booking never gets longer than this
+    },
+
+    // The entry and exit QR codes (src/gate.js).
+    gate: {
+      // The entry QR works from this many minutes before the booked start (and until the booked end).
+      earlyMinutes: number(env.QR_EARLY_MINUTES, 15, { min: 0 }),
+      // A vehicle that leaves up to this many minutes after the booked end pays nothing extra. After that every started
+      // hour costs the booking's own hourly rate.
+      graceMinutes: number(env.OVERSTAY_GRACE_MINUTES, 10, { min: 0 }),
+      // The address of the website that goes inside the QR code, such as https://parking-site-demo.onrender.com. Empty: the
+      // address the customer's browser used is taken (Render also tells us its own address in RENDER_EXTERNAL_URL).
+      publicUrl: String(env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || '').trim().replace(/\/+$/, ''),
+      // A paid booking whose vehicle has not been scanned in this many minutes after the booked start is a no-show: its bay is
+      // released for other customers (the money is kept). The vehicle may still come in if the bay is still free. 0 turns it off.
+      noShowMinutes: Math.max(0, Math.min(240, Math.floor(number(env.NO_SHOW_RELEASE_MINUTES, 30)))),
+      // The admin is warned when a vehicle that is past its booked time sits on a bay that someone else has booked from within
+      // this many minutes (or from a time that has already come).
+      bayWarningMinutes: Math.max(5, Math.min(240, Math.floor(number(env.BAY_WARNING_MINUTES, 30)))),
+    },
   };
 }
 

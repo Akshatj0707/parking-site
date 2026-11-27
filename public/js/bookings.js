@@ -24,11 +24,28 @@
 
   function statusOf(r) {
     if (r.status === 'paid') return [r.state === 'active' ? 'Paid, parked now' : r.state === 'ended' ? 'Paid, over' : 'Paid, coming up', 'paid'];
-    if (r.status === 'refunded') return [r.cancelledByOperator ? 'Cancelled, refunded' : 'Refunded', 'refunded'];
+    if (r.status === 'refunded') return [r.cancelledByCustomer ? (r.refundPercent !== null && r.refundPercent < 100 ? `Customer cancelled, ${r.refundPercent}% refunded` : 'Customer cancelled, refunded') : r.cancelledByOperator ? 'Cancelled, refunded' : 'Refunded', 'refunded'];
     if (r.status === 'refund_pending') return ['Refund sending', 'refund_pending'];
     if (r.status === 'refund_failed') return ['Refund failed', 'refund_failed'];
-    if (r.status === 'cancelled') return [r.cancelledByOperator ? 'Cancelled by admin' : 'Not paid', 'cancelled'];
+    if (r.status === 'cancelled') return [r.cancelledByCustomer ? 'Cancelled by customer' : r.cancelledByOperator ? 'Cancelled by admin' : 'Not paid', 'cancelled'];
     return ['Waiting for payment', 'cancelled'];
+  }
+
+  // Where the vehicle is in its visit (the entry and exit QR codes), for a paid booking.
+  function lotCell(r) {
+    const g = r.gate;
+    if (!g || r.status !== 'paid') return '–';
+    const t = (ms) => S.formatTime(ms, off);
+    const ov = g.overstay;
+    if (g.stage === 'left') {
+      const extra = ov ? (ov.status === 'paid' ? `Extra ${rupees(ov.amount)} ${ov.method === 'manual' ? 'collected' : 'paid'}` : 'Extra charge waived') : null;
+      return [h('span', { class: 'badge refunded' }, 'Left'), h('span', { class: 'sub' }, `In ${t(g.entryAt)}, out ${t(g.exitAt)}`), extra ? h('span', { class: 'sub' }, extra) : null];
+    }
+    if (g.stage === 'payment_due') return [h('span', { class: 'badge refund_failed' }, `Owes ${rupees(ov.amount)}`), h('span', { class: 'sub' }, `${ov.hours} extra h, exit scanned ${t(g.exitScanAt)}`)];
+    if (g.stage === 'overstaying') return [h('span', { class: 'badge refund_pending' }, 'Over time'), h('span', { class: 'sub' }, `In ${t(g.entryAt)}, ${g.estimate.overMinutes} min over`)];
+    if (g.stage === 'inside') return [h('span', { class: 'badge paid' }, 'Inside'), h('span', { class: 'sub' }, `In ${t(g.entryAt)}`)];
+    if (g.stage === 'unused') return [h('span', { class: 'badge cancelled' }, 'Never came'), h('span', { class: 'sub' }, 'No entry scan')];
+    return h('span', { class: 'fine' }, 'Not arrived');
   }
 
   function readForm() {
@@ -64,7 +81,7 @@
 
   function table(rows) {
     if (!rows.length) return h('p', { class: 'muted' }, 'No bookings match these filters.');
-    const heads = ['Reference', 'Paid', 'Customer', 'Vehicle', 'Bay', 'Parking time', 'Amount', 'Status', 'Razorpay payment'];
+    const heads = ['Reference', 'Paid', 'Customer', 'Vehicle', 'Bay', 'Parking time', 'Amount', 'Status', 'At the lot', 'Razorpay payment'];
     if (canRefund) heads.push('Action');
     return h(
       'table',
@@ -87,6 +104,7 @@
             h('td', null, r.window),
             h('td', { class: 'num' }, rupees(r.amount)),
             h('td', null, h('span', { class: 'badge ' + cls }, label)),
+            h('td', null, lotCell(r)),
             h('td', null, r.paymentId ? h('span', { class: 'mono wrap-id' }, shownId(r.paymentId)) : '–', r.orderId ? h('span', { class: 'sub wrap-id' }, 'Order ' + r.orderId) : null, r.refundId ? h('span', { class: 'sub wrap-id' }, 'Refund ' + r.refundId) : null),
             canRefund ? h('td', null, r.canCancel ? h('button', { class: 'btn btn-outline btn-sm', type: 'button', 'aria-label': `${r.status === 'refund_failed' ? 'Retry the refund for' : 'Cancel the booking for'} ${r.plate}`, onclick: () => cancel(r) }, r.status === 'refund_failed' ? 'Retry refund' : 'Cancel and refund') : null) : null
           );

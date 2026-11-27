@@ -1,3 +1,5 @@
+[![Tests](https://github.com/Akshatj0707/parking-site/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Akshatj0707/parking-site/actions/workflows/ci.yml)
+
 # Bayfind Smart Parking
 
 A parking website where drivers book a bay by **vehicle number** and pay online with **Razorpay**.
@@ -109,7 +111,7 @@ If something goes wrong in between, the site handles it:
 - Starts on the hour or half hour, 1 to 4 hours long, up to 7 days ahead.
 - The price depends on the day the booking **starts** (weekday or weekend rate). A Friday evening booking that runs past midnight still uses the Friday rate.
 - All dates and times use one clock, India Standard Time by default, whatever the visitor's device says.
-- Vehicle numbers use the standard Indian format, for example `MP 09 AB 1234`, `KA 01 1234` or `DL1CAB1234`. Bharat (BH) series numbers are not supported.
+- Vehicle numbers use the standard Indian format, for example `MP 09 AB 1234`, `KA 01 1234` or `DL1CAB1234`, or the Bharat (BH) series, for example `22 BH 1234 AA`.
 
 ### The operator dashboard
 
@@ -117,23 +119,45 @@ Open `/dashboard`. It asks for a user name (`operator`, or whatever you set in `
 
 “In use” on the dashboard means “has a paid booking right now”. No sensors or cameras are connected.
 
-### Accounts and roles (Admin, Government official and Customer)
+### Accounts and roles (Admin, Government official, Gate attendant and Customer)
 
-The site has three roles.
+The site has four roles.
 
 | Role | Who | What they can do |
 | --- | --- | --- |
 | **Admin** (the owner) | The lot operator. Signs in at `/login` with the user name `operator` (or `OPERATOR_USER`) and `OPERATOR_PASSWORD`. Nobody can become an admin by signing up. | **Everything**: see every booking and every customer, search and download bookings as a spreadsheet, see the money collected and the busiest times, cancel and refund bookings, see the Razorpay connection and run the Setup check. |
 | **Government official** | A login the owner creates on the **Officials** page (`/officials`: name, office, email, password; the owner can also set a new password or remove a login, which signs that official out at once). Officials sign in at `/login` with their email. Nobody can become an official by signing up. | **All the data, read only**: every booking and every customer, all payments and numbers, the spreadsheet download. They cannot cancel or refund, run the Setup check, add sample data or create logins (403). To let officials refund as well, add `bookings:cancel-refund` to the `official` list in `src/roles.js`. |
-| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens a staff page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Staff only" (403), and the staff data requests answer 403 too. |
+| **Gate attendant** | A login the owner creates in the second section of the **Officials** page (`/officials`: name, email, password; the owner can set a new password or remove a login, which signs that person out at once). Attendants sign in at `/login` with their email and land on the scanner. Nobody can become an attendant by signing up. | **Only the gate**: scan customers in and out (the log shows their name), mark an extra charge as collected another way (cash), and move a booking that has not arrived to another free bay. They see no money figures, no customer list and no list of bookings, and cannot cancel, refund, **waive a charge** (only the owner can) or create logins (403). The staff pages other than the scanner answer "Not for your role". |
+| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, see their own bookings at `/account`, **cancel a booking that has not started** (with a refund by the rule below), **add hours while parked** from their pass page, and get a link by email to choose a new password if they forget it (when email is set up). A customer who opens a staff page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Staff only" (403), and the staff data requests answer 403 too. |
 
 By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off` lets anyone book without an account). Every booking made while signed in belongs to that customer, and the browser cannot choose whose booking it is. Passwords are kept only as scrypt hashes in `users.json` next to `bookings.json`; the sign-in is a signed, HttpOnly, SameSite cookie (`SESSION_SECRET` is optional: without it a random key is kept in the data folder). Wrong passwords are limited per connection and per account. Scripts can still use the operator password with HTTP Basic.
 
 To try the site on your own computer, `SEED_TEST_CUSTOMER=on` creates a customer, `customer@example.com` with the password `Customer@123`, and shows it on the sign-in page. It is never created once Razorpay keys are set, and it is off unless you ask for it.
 
+### Install as an app, and the pass with no signal
+
+The site is a Progressive Web App: a browser that supports it offers **Install the app** in the page footer (on an iPhone: Share, then **Add to Home Screen**), and it then opens full screen like an app, with shortcuts to **Book a bay** and **Find my booking**. A **service worker** (`public/sw.js`, served as `/sw.js`) also saves, on the customer's own phone:
+
+- the pass page and the files it needs, and a copy of each pass the customer opened (the last answer of `/api/pass` and the two QR images; at most 30 files, none older than 7 days). With no signal (a basement car park, say) the pass still opens and shows its QR codes, with a note that it is a saved copy and may be out of date. The gate staff scan the QR on their own phone, so the pass works at the gate either way. Any other page shows an **offline page** that lists the saved passes.
+- Nothing else. Payments, sign-in, accounts, invoices, the owner's pages and every other `/api/` address are never answered or saved by the worker, and Razorpay (another site) is never touched.
+
+It needs `https://` (Render and any normal host provide it; `http://localhost` also works for testing). The icons are the PNG files in `public/img/` (`icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`); replace them to use your own logo. The app name comes from `SITE_NAME`. Each release replaces the files the worker saved (the release is named from `RENDER_GIT_COMMIT` on Render).
+
+### The invoice
+
+When a booking is over (the vehicle has left, nothing is left to pay, and any refund is done) the pass page and **My bookings** show an **Open invoice** button. The invoice page prints on A4, and the browser's print window can also “Save as PDF”. It is a **Tax invoice** when `INVOICE_GSTIN` is set and a **Receipt** otherwise. Every invoice carries a number (consecutive, restarting every April), a verification code and a QR code; opening the QR code shows “This invoice is genuine” only when the number, code and amount are exactly what this website issued, so a changed printout is caught. When payments are not in live Razorpay mode the invoice says **Test copy**.
+
 ### Analytics for the operator
 
 `/analytics` (Admin only) shows the **money collected on any day** and the **busiest hours**: tiles for the day's collection, the busiest hour and the last 7, 14, 30 or 90 days; a 24-hour chart of vehicles parked or arriving (all, cars or two-wheelers; an average day or one chosen day) with the peak hour highlighted; the money collected each day; the car and two-wheeler split; and a few plain-language findings. Money counts payments received that day, minus bookings that were cancelled and refunded, the same rule as the dashboard. Vehicles parked is worked out from paid bookings (not sensors). On your own computer (simulated payments only) the page can add about two weeks of clearly marked **sample bookings**; a live site never offers them, so its numbers are always real.
+
+### The demand forecast and price ideas
+
+At the bottom of `/analytics`, **The next 7 days** guesses how busy the lot will be, shows how far off that kind of guess has been lately, and offers price ideas. The method is deliberately plain: a coming day is the weighted average of the same weekday in the last four weeks (last week counts 4, then 3, 2, 1). With fewer than two such weeks it is the average of the last 7 days, and it is never lower than what is already paid for. It needs 7 days of bookings before it shows anything. It uses no weather, holiday or event data.
+
+**How good is it?** The method is run again on each of the last 14 finished days using only the days before that day (a back-test), and compared with what really happened. The page shows the average miss and the **WAPE** (the total miss as a share of the total real figure, so one empty day cannot distort it), next to the same figures for the plainest guess, “the same as last week”. *Confidence* is **low** with under 14 days of bookings or a large miss, **medium** by default, and **high** only with 28 or more days and a miss of 20% or less.
+
+**Price ideas are only ideas.** A day whose busiest hour is forecast at `FORECAST_HIGH_PERCENT` of the bays or more gets “try a higher rate”; a day at `FORECAST_LOW_PERCENT` or less that is also clearly quieter than the rest of the week gets “try an offer”. Nothing in the website changes a price or reads these ideas back; you change the `RATE_` settings yourself. While the confidence is low there are no ideas at all.
 
 ### Free AI answers for the chat (any question)
 
@@ -144,9 +168,42 @@ Without an AI key the chat gives built-in answers about parking (prices, free ba
 
 With an AI key the chat can still look up live free bays and prices, never invents prices or bay counts, and declines harmful requests. What visitors type in the chat is sent to the AI service you chose; the privacy page says which one. Never put a key in chat messages or on GitHub: type it only into Render's Environment page or your `.env` file.
 
-### Cancelling a booking and refunding it
+### What a signed-in customer can do by themselves
 
-Drivers cannot cancel on their own: there are no accounts, so the site cannot tell who is asking. You can, from the dashboard:
+**Cancel before the start.** On **My bookings** (`/account`) a paid booking that has not started has **Cancel this booking**. The page first shows what comes back and asks the customer to confirm that exact amount; if the rule gives a different amount by the time they press the button, nothing is cancelled and they are asked again. The refund rule, set with three settings:
+
+| When the customer cancels | What comes back |
+|---|---|
+| At least `CANCEL_FREE_HOURS` (2) hours before the start | the full amount |
+| Within `CANCEL_GRACE_MINUTES` (10) of paying, and before the start | the full amount |
+| Later than that, but before the start | `CANCEL_LATE_REFUND_PERCENT` (50%) of the amount; you keep the rest |
+| After the start | cannot be cancelled online (the owner can, from the dashboard, until the vehicle is scanned in) |
+
+The bay is freed at once and the refund goes back through Razorpay to the card or UPI the customer paid with. If Razorpay does not accept the refund, the booking is still cancelled and appears under **Needs attention** on the dashboard with a **Retry refund** button, the same as for a booking you cancel yourself (next section). Put the same rule into the words of your `/refunds` page.
+
+**Add time while parked.** After the entry scan and before the booked end, the pass page has **Need more time?**: the customer picks 1 to `EXTEND_MAX_HOURS` (4) extra hours and pays for them through Razorpay at the normal price for those hours. It works only if the bay and the vehicle are free for that time (otherwise the page says why and offers fewer hours), and a booking never grows beyond `EXTEND_MAX_TOTAL_HOURS` (8) hours in all. There is no way to move a booking to another day or time: cancel it (the rule above applies) and book again.
+
+**Forgotten password.** When email is set up, the sign-in page shows **Forgot your password?**. The customer types an email address and, if an account has it, gets a link that works once for `RESET_LINK_MINUTES` (30). The answer on the page is the same for every address, so nobody can use it to find out who has an account. The link carries the site's own address (`PUBLIC_URL`; Render fills it in by itself), never one taken from the request.
+
+### Emails the site sends
+
+Only these four, and only when `EMAIL_API_KEY` and `EMAIL_FROM` are set (section 4). Without them nothing is emailed: the sign-in page has no “Forgot your password?” link, and the screens say honestly that no email went out.
+
+- **A customer cancelled their booking**: the booking details, what was paid and what happens to the money.
+- **You cancelled and refunded a booking** from the dashboard.
+- **The password link** (above).
+- **“Your parking ends soon”**: one email `END_REMINDER_MINUTES` (15) before the booked end, only to a customer with an account whose vehicle is inside, with a link to add time. A customer who adds time gets a new reminder for the new end. `0` turns it off.
+
+There is no email for a new booking (the confirmation is on screen and on the pass page) and no text message (that needs a paid service).
+
+### Empty bays and blocked bays
+
+- **No-show.** A paid booking whose vehicle has not been scanned in `NO_SHOW_RELEASE_MINUTES` (30) after the booked start has its bay released, so other customers can book it. The money is kept (the customer did not cancel). If nobody else has taken the bay, the vehicle can still come in later. `0` turns this off.
+- **A vehicle that stays past its time** while someone else has booked that bay from now or from within `BAY_WARNING_MINUTES` (30): the dashboard and the scanner page show a warning, and the owner or a gate attendant can move the waiting booking to a free bay. The site never moves it by itself.
+
+### Cancelling a booking and refunding it (the owner's way)
+
+This part is for you, the operator, and works for any paid booking that has not ended and whose vehicle has not been scanned in (customers cancel their own by the rule above). From the dashboard:
 
 1. Find the box **Cancel and refund a booking** (at the top of the dashboard) and type the vehicle number. You can also press **Cancel…** next to a payment in the Recent payments table.
 2. The site lists that vehicle's paid bookings that have not ended yet. Press **Cancel and refund** and then confirm.
@@ -161,6 +218,26 @@ Good to know:
 - A cancelled and refunded booking is taken out of the money figures at the top of the dashboard. It stays in the Recent payments list, marked “Cancelled, refunded”.
 - In test mode nothing was paid, so cancelling just cancels.
 - The cancel buttons are protected by the same operator password as the dashboard, so set one before the site goes online. They also only work from the dashboard page itself, so a link or form on another website cannot trigger a refund.
+
+### Entry and exit QR codes (scanning at the lot)
+
+When a booking is paid, the customer gets **two QR codes** on the confirmation page and on their pass page (`/pass`, also under **My bookings** for a signed-in customer):
+
+- **Entry QR**: the admin scans it when the vehicle drives in. It works from 15 minutes before the booked start until the booked end, and **only once**.
+- **Exit QR**: the admin scans it when the vehicle leaves. It needs an entry scan first.
+
+**Who scans.** The **admin** (the operator login and the second admin login) and the **gate attendants** the owner has created. Open **Scan QR** in the menu (or the button on the dashboard) on a phone that is signed in, allow the camera, and point it at the customer's phone. The code says by itself whether it is an entry or an exit, and the answer comes in large green (accepted), amber (look at it) or red (refused). A normal phone camera also works: the QR holds the address `/scan?t=...`, which opens the scanner after the admin has signed in. If a phone is flat or the camera cannot read the code, type the **booking reference or the vehicle number** and press **Entry** or **Exit**. Government officials and customers cannot scan: the page and its requests are refused to them. Dropping an extra charge (**Waive the charge**) is for the owner alone; an attendant sees only **Collected another way**.
+
+**Staying too long.** If the vehicle leaves up to 10 minutes after the booked end, nothing extra is charged. After that, every **started hour** is charged at **the booking's own hourly rate** (a booking of 11:00 to 13:00 at ₹40 an hour that leaves at 14:10 owes 2 extra hours, ₹80). The exit scan works out the amount and fixes it. The customer's pass page then shows **Pay**, the customer pays through Razorpay on their own phone, and the exit is complete (and the scanner screen turns green) only after the payment. If a customer cannot pay online, the admin can press **Collected another way** (for example cash) or **Waive the charge** on the scanner screen. While a vehicle is inside past its time, the pass page already shows what leaving now would cost.
+
+Good to know:
+
+- The QR codes hold only a **signed reference** (made with the site's secret), nothing else, so nobody can make one for another booking. The pass link (`/pass?t=...`) is the key to a booking's QR codes: it is shown to the customer who paid (and under My bookings), never in the public “Find my booking” by vehicle number. A guest without an account should save the pass link or take a screenshot.
+- A booking whose vehicle has been **scanned in cannot be cancelled** from the dashboard any more.
+- The extra time is **not** part of the booking money in the analytics pages. The dashboard shows it in its own tile, **Extra time paid today**, next to **Vehicles inside now**.
+- Payments for extra time are checked the same three ways as bookings: the browser's confirmation (signature checked), Razorpay's webhook, and a once-a-minute check at Razorpay for a payment that was never confirmed.
+- Settings: `QR_EARLY_MINUTES` (default 15), `OVERSTAY_GRACE_MINUTES` (default 10) and `PUBLIC_URL` (the website address that goes into the QR codes; Render fills it in by itself).
+- A vehicle that stays past its time can still be in a bay that someone else booked next. The site charges for the extra time and warns the staff (section 3, “Empty bays and blocked bays”), but a person has to move the waiting booking.
 
 ### The chat assistant
 
@@ -219,11 +296,27 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `SUPPORT_EMAIL` | Shown in the footer and in messages that say “contact us”. Empty means “ask at the parking office”. | empty |
 | `BUSINESS_NAME` | Your business name as it is on your Razorpay account. Shown on the Contact, Terms and Privacy pages (up to 80 characters). | the `SITE_NAME` |
 | `SUPPORT_PHONE` | A phone number for the Contact page and the “contact us” lines. Razorpay wants one on a live site. | empty |
-| `BUSINESS_ADDRESS` | The address on the Contact page, on one line (up to 240 characters). | empty |
+| `BUSINESS_ADDRESS` | The address on the Contact page, on one line (up to 240 characters). It is also printed on the invoice. | empty |
+| `INVOICE_GSTIN` | Your 15-character GST number. With it the invoice is a **Tax invoice** (GST included in the price, shown as CGST + SGST). Without it, or if the number is not in the right shape, the invoice is a plain **Receipt** with no GST, because a seller who is not registered cannot charge GST. | empty |
+| `INVOICE_GST_PERCENT`, `INVOICE_SAC` | The GST rate (whole percent, 0 to 28) and the service code printed on a tax invoice. | `18`, `996743` |
+| `FORECAST_HIGH_PERCENT`, `FORECAST_LOW_PERCENT`, `FORECAST_STEP_PERCENT` | For the price ideas on the Analytics page: how full the busiest hour must be (in percent of the bays) to suggest a higher rate (50 to 100) or an offer (0 to the high limit minus 10), and the size of the suggested change in percent (1 to 50). | `80`, `25`, `10` |
+| `INVOICE_PREFIX` | Up to 4 letters or digits at the start of the invoice number, for example `INV2627-00001` (the number restarts every 1 April). | `INV` |
 | `RATE_CAR_WEEKDAY`, `RATE_CAR_WEEKEND` | 4-wheeler price per hour, in rupees. | `40`, `60` |
 | `RATE_BIKE_WEEKDAY`, `RATE_BIKE_WEEKEND` | 2-wheeler price per hour, in rupees. | `20`, `30` |
 | `WEEKEND_DAYS` | Which days use the weekend price: `0` = Sunday … `6` = Saturday. | `0,6` |
 | `HOLD_MINUTES` | How long a bay is held while the driver pays. | `10` |
+| `QR_EARLY_MINUTES` | The entry QR code works from this many minutes before the booked start. | `15` |
+| `OVERSTAY_GRACE_MINUTES` | A vehicle may leave this many minutes after the booked end without paying extra. After that every started hour is charged. | `10` |
+| `CANCEL_FREE_HOURS` | A customer who cancels at least this many hours before the booking starts gets the full amount back. | `2` |
+| `CANCEL_GRACE_MINUTES` | A customer who cancels within this many minutes of paying also gets the full amount back (as long as the booking has not started). | `10` |
+| `CANCEL_LATE_REFUND_PERCENT` | Share of the amount that comes back when the customer cancels later than that, but before the start (0 to 100). After the start a booking cannot be cancelled online. | `50` |
+| `EXTEND_MAX_HOURS` | The most hours a parked customer can add at one time. | `4` |
+| `EXTEND_MAX_TOTAL_HOURS` | A booking, with everything added to it, never gets longer than this many hours. | `8` |
+| `NO_SHOW_RELEASE_MINUTES` | A paid booking whose vehicle has not been scanned in this many minutes after the booked start is a no-show: its bay is released for other customers (the money is kept). The vehicle can still come in later if nobody else got the bay. `0` turns it off (0 to 240). | `30` |
+| `BAY_WARNING_MINUTES` | The dashboard and the scanner page warn when a vehicle that is past its booked time sits on a bay that someone else has booked from now or from within this many minutes (5 to 240). The admin can move the waiting booking to a free bay. | `30` |
+| `RESET_LINK_MINUTES` | How long the “Forgot your password?” email link works (5 to 240). Needs the email settings above and a `PUBLIC_URL`; each link works once. | `30` |
+| `END_REMINDER_MINUTES` | A parked customer with an account gets one email this many minutes before the booked end, with a link to add time (0 to 120; `0` turns it off). Needs the email settings above. | `15` |
+| `PUBLIC_URL` | The website address inside the QR codes, such as `https://parking-site-demo.onrender.com`. Empty: the address the customer used (Render also sets `RENDER_EXTERNAL_URL`). | empty |
 | `UTC_OFFSET_MINUTES` | The lot's clock, in minutes ahead of UTC. `330` is India. | `330` |
 | `AI_API_KEY`, `AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL` | A free (or any OpenAI-compatible) AI for the chat: see “Free AI answers for the chat”. | empty, `gemini` |
 | `ANTHROPIC_API_KEY` | Your Anthropic key, so that an AI writes the chat answers (section 3, “The chat assistant”). It starts with `sk-ant-`. Keep it private. Empty means built-in answers only. | empty |
@@ -310,16 +403,16 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 
 ## 8. What this version does not do (please read before launching)
 
-- **No driver accounts and no sign-in.** The vehicle number is how a booking is found. That means anyone who knows a vehicle number can see when and where it is booked. The site holds no names, phone numbers or email addresses.
-- **No emails or text messages.** The confirmation is on screen, and “Find my booking” shows it again later. Razorpay may send its own payment receipt.
+- **“Find my booking” is public.** Anyone who knows a vehicle number can see when and where it is booked (no name or email is shown there). Accounts hold a customer's name, email address and a hashed password, and no phone number; a customer can also book without an account if you set `CUSTOMER_LOGIN_REQUIRED=off`.
+- **Emails only if you set them up, and no text messages.** There is no email for a new booking: the confirmation is on screen and on the pass page. The four emails the site can send are listed in section 3 and need a Brevo or Resend key. Razorpay may send its own payment receipt.
 - **The chat assistant can be wrong, and it cannot act.** The built-in answers follow your settings. An AI answer is written by a model that sometimes makes mistakes, which the chat window says under the typing box, so keep the prices and the policy pages right: they are what drivers can rely on. The assistant cannot look at, change, cancel or refund a booking (the operator does that on the dashboard). With the AI on, what drivers type in the chat goes to Anthropic (section 3, “Privacy”), so read `/privacy` and have it checked like the other policy pages. The costs are small and capped (section 3, “What it costs”), but they are yours.
-- **Drivers cannot cancel or change a booking themselves.** The operator can cancel and fully refund one from the dashboard (section 3). There is no change or extend button: to stay longer, book the next time slot.
+- **Customers can cancel only before the start, and cannot move a booking.** They get the refund your rule gives (section 3). After the start only you can cancel, from the dashboard, until the vehicle is scanned in. Hours can be added only while the vehicle is parked, up to the limits in section 4; to change the day or time, cancel and book again.
 - **If you refund a payment by hand in the Razorpay Dashboard, the site is not told**, so the bay stays reserved for that time. Use **Cancel and refund** on the dashboard instead.
-- **The site refunds by itself only when a bay is lost** (section 3). Every other refund is your decision.
+- **The site refunds by itself in two cases**: a bay is lost (section 3) and a customer cancels under your rule. Every other refund is your decision, for example a part refund or a booking that has already ended.
 - **No protection against people who start bookings and never pay**, which holds a bay for 10 minutes each time. There is a limit on how many attempts one visitor can make, but add a CAPTCHA or phone verification before a large public launch.
-- **Nothing is connected to the gate, cameras or sensors.** A bay is reserved by time only.
-- **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database.
-- **No tax invoices.** If your business needs GST invoices, talk to your accountant; Razorpay's Dashboard keeps the payment records.
+- **No barrier, camera or sensor is connected.** The entry and exit QR codes are scanned by a person with a phone (section 3, “Entry and exit QR codes”). Nothing opens a gate by itself, and a vehicle that never gets scanned is not noticed.
+- **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database. `LOAD-TEST.md` shows how far one server gets and why the file becomes the slow part first.
+- **Invoices are simple.** The invoice page makes a GST tax invoice (or a receipt when no GST number is set) and checks its own printouts, but it does not file GST returns or keep your books. Ask your accountant to check the wording before you rely on it for tax.
 - **The policy pages are plain-language starting points, not legal advice.** Read each one and change what does not match how you run the lot, above all the cancellation rule on `/refunds`. Have a lawyer or your accountant look at them before you take real money. They say nothing about who is responsible for a vehicle or what is left inside it, and nothing about GST: ask your accountant whether GST applies to your parking and how it has to be shown. The words are in the `public/legal` folder (plain HTML). When you change a page, also change the “Last updated” date on it (the line that starts with `<p class="updated">`). After a change, upload the folder again and run the setup (DEPLOY.md, step 11).
 
 ---
@@ -352,6 +445,21 @@ npm test
 
 runs the automated checks in about fifteen seconds. They use a temporary data folder and a pretend Razorpay, so they never touch your real bookings or your Razorpay account. Each check should show a tick (✔, or `ok` on older Node versions), and the summary near the end should say `fail 0`.
 
+GitHub runs the same checks by itself on every push (the `Tests` badge at the top of this page; the instructions are in `.github/workflows/ci.yml`), on Node 20 and on Node 22. A green tick there means the checks passed on a clean machine, not only on yours.
+
+### Many people at once
+
+```
+npm install            # once: this also installs the load-testing tool, which the live site does not need
+npm run loadtest
+```
+
+starts its own copy of the site and sends thousands of requests at it for ten seconds per test (home page, free-bay check, holding a bay, and a whole visit from booking to pass), then prints a table of requests per second and how long answers took. `LOAD-TEST.md` has the figures from one run, what they do and do not show, and how to point it at a site that is already running. `test/concurrency.test.js` (part of `npm test`) checks the other half: that two people asking for the last bay at the same instant never get the same one, and that one payment is never counted twice.
+
+### Asking real people (usability survey)
+
+The `usability/` folder is a ready-made test: six small jobs for a new user to try, the ten standard questions of the System Usability Scale (SUS), and a sheet for the answers. `npm run sus` turns the filled-in sheet into a score from 0 to 100 with an average, a spread and a 95% interval (`usability/SUS-SURVEY.md` explains how to run it and how to report it). It is for testing the site; drivers never see it.
+
 ## 11. What is in this folder
 
 ```
@@ -359,6 +467,7 @@ server.js        starts the site (reads .env, checks the Node version, prints th
 src/
   app.js         pages, the API, the webhook and the security headers
   bookings.js    the booking rules: holds, prices, conflicts, payment confirmation, refunds
+  gate.js        the entry and exit QR codes: signed tokens, scanning in and out, paying for extra time
   payments.js    Razorpay: creating orders, checking signatures
   store.js       saving bookings to data/bookings.json
   config.js      reads the settings
@@ -371,7 +480,11 @@ public/          what the browser receives: the HTML pages, css/, js/, img/ and 
   legal.html     the frame (header, footer) around the policy pages
   legal/         the words of the policy pages: pricing, terms, privacy, refunds, shipping, contact
 deploy/          the scripts and files that put the site on a server (DEPLOY.md explains them)
-test/            the automated checks
+test/            the automated checks (npm test)
+scripts/         tools for you, not part of the site: loadtest.js (many people at once) and sus-score.js (usability survey scores)
+usability/       the usability test: the jobs and questions to give people, and a sheet for their answers (SUS-SURVEY.md)
+.github/         GitHub's automatic test run (workflows/ci.yml)
+LOAD-TEST.md     how the site behaves under load, and the figures from one run
 render.yaml      tells Render (render.com) how to run the site (DEPLOY-RENDER.md explains it)
 render-free.yaml the same for Render's free size: a demo with nothing to type, no disk, bookings not kept
 DEPLOY.md        the step-by-step guide to putting the site on a server you rent

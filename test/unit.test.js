@@ -33,6 +33,16 @@ test('Indian vehicle number formats are accepted and nonsense is not', () => {
   }
 });
 
+test('Bharat (BH) series numbers are accepted: year, BH, four digits, one or two letters (never I or O)', () => {
+  for (const ok of ['22BH1234AA', '21BH0001A', '23BH9999ZZ', '22BH1234HJ']) assert.equal(S.isValidPlate(ok), true, ok);
+  assert.equal(S.isValidPlate(S.normalizePlate(' 22 bh-1234 aa ')), true, 'typed any way');
+  for (const bad of ['22BH1234', '22BH1234AAA', '22BH123AA', '2BH1234AA', '22BH1234IA', '22BH1234AO', '22BX1234AA', 'BH221234AA', '22BH1234A1']) {
+    assert.equal(S.isValidPlate(bad), false, bad);
+  }
+  assert.equal(S.formatPlate('22BH1234AA'), '22 BH 1234 AA');
+  assert.equal(S.formatPlate('21BH0001A'), '21 BH 0001 A');
+});
+
 test('vehicle numbers are shown with spaces', () => {
   assert.equal(S.formatPlate('MP09AB1234'), 'MP 09 AB 1234');
   assert.equal(S.formatPlate('KA011234'), 'KA 01 1234');

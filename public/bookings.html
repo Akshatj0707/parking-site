@@ -6,6 +6,8 @@
   <meta name="robots" content="noindex">
   <title>All bookings · {{SITE_NAME}}</title>
   <meta name="theme-color" content="#0b1530">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -108,7 +110,8 @@
     <div class="panel-head"><h2 id="list-title">Bookings</h2><p class="totals" id="totals" role="status"></p></div>
     <div class="table-wrap" id="list"><p class="muted">Loading…</p></div>
     <div class="pager" id="pager"></div>
-    <p class="fine">Only paid bookings that have not ended yet can be cancelled here, and a refund that failed can be tried again. For a booking that has already ended, refund the payment from the Razorpay dashboard. Unpaid attempts are people who started a booking and never paid: nothing was charged.</p>
+    <p class="fine"><b>At the lot</b> shows what the entry and exit QR scans recorded. A booking whose vehicle has already been scanned in cannot be cancelled here.</p>
+    <p class="fine">Only paid bookings that have not ended yet and whose vehicle has not come in can be cancelled here, and a refund that failed can be tried again. For a booking that has already ended, refund the payment from the Razorpay dashboard. Unpaid attempts are people who started a booking and never paid: nothing was charged.</p>
   </section>
 </main>
 

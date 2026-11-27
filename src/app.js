@@ -13,8 +13,11 @@ const { verifyWebhookSignature } = require('./payments');
 const { RENDER_DISK_PATH } = require('./config');
 const { describeWeek } = require('./words');
 const { createChat } = require('./chat');
-const { createAuth } = require('./auth');
-const { createMailer, cancellationEmail, maskEmail } = require('./mail');
+const { createAuth, normalizeEmail } = require('./auth');
+const { createGate, qrSvg } = require('./gate');
+const { createInvoices } = require('./invoice');
+const { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, maskEmail } = require('./mail');
+const { createReminders } = require('./reminders');
 const roles = require('./roles');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -29,13 +32,28 @@ const PAGES = {
   '/bookings': 'bookings.html',
   '/customers': 'customers.html',
   '/officials': 'officials.html',
+  '/scan': 'scan.html',
+  '/pass': 'pass.html',
+  '/offline': 'offline.html',
   '/login': 'auth.html',
   '/signup': 'auth.html',
   '/account': 'auth.html',
+  '/forgot-password': 'auth.html',
+  '/reset-password': 'auth.html',
 };
 // Pages for the staff: the owner (admin) and government officials. The Officials page is for the owner alone.
-const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers', '/officials']);
-const OWNER_PAGES = { '/officials': 'accounts:manage' };
+const ADMIN_PAGES = new Set(['/dashboard', '/analytics', '/business', '/bookings', '/customers', '/officials', '/scan']);
+// What a signed-in staff member needs to hold to open each staff page (the owner holds all of them; a gate attendant only /scan).
+const PAGE_PERMISSION = {
+  '/dashboard': 'bookings:view-all',
+  '/bookings': 'bookings:view-all',
+  '/customers': 'customers:view',
+  '/analytics': 'analytics:view',
+  '/business': 'analytics:view',
+  '/officials': 'accounts:manage',
+  '/scan': 'gate:scan',
+};
+const STAFF_ROLES = new Set(['admin', 'official', 'attendant']);
 // The policy pages. Razorpay looks for these before it switches a shop to live payments. The words of each page are in
 // public/legal/<name>.html; public/legal.html wraps them in the site's header and footer. The footer links come from
 // this list, in this order.
@@ -117,7 +135,7 @@ function chatPrivacy(config) {
 function createPageRenderer(config, now) {
   const read = (file) => fs.readFileSync(path.join(PUBLIC_DIR, file), 'utf8');
   const fill = (html, tokens) => html.replace(/\{\{([A-Z_]+)\}\}/g, (whole, key) => (key in tokens ? tokens[key] : whole));
-  return (file, legal = null) => {
+  return (file, legal = null, extra = null) => {
     const car = S.LOT.car;
     const bike = S.LOT.bike;
     const week = describeWeek(config);
@@ -148,8 +166,18 @@ function createPageRenderer(config, now) {
       HOURS_MIN: String(config.hoursOptions[0]),
       HOURS_MAX: String(config.hoursOptions[config.hoursOptions.length - 1]),
       HOLD_MINUTES: String(config.holdMinutes),
+      CANCEL_FREE_HOURS: String(config.cancel.freeHours),
+      CANCEL_GRACE_MINUTES: String(config.cancel.graceMinutes),
+      CANCEL_LATE_PERCENT: String(config.cancel.lateRefundPercent),
+      EXTEND_MAX_HOURS: String(config.extend.maxHours),
+      EXTEND_MAX_TOTAL_HOURS: String(config.extend.maxTotalHours),
       MAX_ADVANCE_DAYS: String(config.maxAdvanceDays),
+      NO_SHOW_MINUTES: String(config.gate.noShowMinutes),
+      NO_SHOW_TEXT: config.gate.noShowMinutes > 0
+        ? `If your vehicle has not been scanned in ${config.gate.noShowMinutes} minutes after the start, the bay is released for other customers and the amount is not refunded. If you come later and the bay is still free, you can still park.`
+        : 'Your bay is kept for the whole time you booked, even if you arrive late.',
     };
+    if (extra) Object.assign(tokens, extra); // the caller escapes these
     if (legal) {
       tokens.PAGE_EYEBROW = escapeHtml(legal.eyebrow);
       tokens.PAGE_TITLE = escapeHtml(legal.title);
@@ -232,12 +260,25 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   if (storage && storage.kind === 'database') bookings.adopt = () => storage.adopt();
   const chat = createChat({ config, bookings, now, log, ...chatOptions });
   const auth = createAuth({ config, now, log, storage });
+  // The entry and exit QR codes. The booking service asks it for a booking's pass page and hands it the payments that are
+  // for extra parking time.
+  const gate = createGate({ config, bookings, razorpay, now, log, signFor: auth.signFor });
+  bookings.passPath = (b) => gate.passPath(b);
+  const invoices = createInvoices({ config, bookings, signFor: auth.signFor, userById: (id) => auth.users.byId(id), now });
+  bookings.invoicePath = (b) => (invoices.eligibility(b).ok ? '/invoice?t=' + gate.tokenFor('pass', b) : null);
+  bookings.overstayWebhook = (payment) => gate.handleWebhook(payment);
+  bookings.overstayReconcile = () => gate.reconcile();
   const mailer = createMailer({ config, log, ...mailOptions });
+  const reminders = createReminders({ config, bookings, gate, auth, mailer, log, now });
   const renderPage = createPageRenderer(config, now);
   const app = express();
   app.locals.bookings = bookings;
   app.locals.chat = chat;
   app.locals.auth = auth;
+  app.locals.gate = gate;
+  app.locals.invoices = invoices;
+  app.locals.reminders = reminders;
+  app.locals.mailer = mailer;
   app.disable('x-powered-by');
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
   app.use(securityHeaders(config));
@@ -302,6 +343,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
         loginRequired: config.auth.customerLoginRequired,
         // false on a host that forgets its files at every restart: accounts and bookings are then lost with them
         persistent: config.dataOnRenderDisk !== false,
+        passwordReset: mailer.enabled, // a customer can get a link to choose a new password by email
         testCustomer: config.auth.seedTestCustomer ? { email: auth.TEST_CUSTOMER.email, password: auth.TEST_CUSTOMER.password } : null,
       },
     });
@@ -376,6 +418,79 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     res.json(bookings.lookup(req.query.plate));
   });
 
+  // ---- The customer's pass: the entry and exit QR codes of a paid booking, and paying for extra parking time ----------
+  // The pass token in the address is the key to the page (see gate.js), so nothing else is asked.
+  const passLimit = createLimiter({ windowMs: 60 * 1000, max: 90 });
+  const passToken = (req) => (typeof req.query.t === 'string' ? req.query.t : '');
+  // The address that goes into a QR code: the settings if they name one, otherwise the address this page was opened on.
+  const siteOrigin = (req) => config.gate.publicUrl || `${req.protocol}://${req.get('host')}`;
+
+  app.get('/api/pass', passLimit, (req, res) => {
+    res.json(gate.passInfo(passToken(req)));
+  });
+
+  app.get('/api/pass/qr', passLimit, (req, res) => {
+    const svg = gate.qrFor(passToken(req), String(req.query.k || ''), siteOrigin(req));
+    res.set('Cache-Control', 'no-store');
+    res.type('image/svg+xml').send(svg);
+  });
+
+  app.post(
+    '/api/pass/overstay/start',
+    verifyLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.startOverstay(req.body && req.body.t));
+    })
+  );
+
+  app.post(
+    '/api/pass/overstay/verify',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const { booking } = await gate.verifyOverstay(req.body);
+      res.json({ status: 'paid', gate: gate.state(booking), booking: gate.summary(booking) });
+    })
+  );
+
+  app.post(
+    '/api/pass/overstay/demo-confirm',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const { booking } = await gate.confirmDemo(req.body && req.body.t);
+      res.json({ status: 'paid', gate: gate.state(booking), booking: gate.summary(booking) });
+    })
+  );
+
+  // More hours for a parked vehicle, before the booked end. The same three steps as paying for extra time: start, then verify
+  // (or the pretend "Pay" button on a developer's computer). A late payment is settled by the webhook or the once-a-minute check.
+  app.post(
+    '/api/pass/extend/start',
+    verifyLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.startExtension(req.body && req.body.t, req.body && req.body.hours));
+    })
+  );
+
+  const extensionReply = (result) => ({ status: result.outcome, booking: gate.summary(result.booking), gate: gate.state(result.booking), extend: gate.extendInfo(result.booking) });
+
+  app.post(
+    '/api/pass/extend/verify',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const result = await gate.verifyExtension(req.body);
+      res.json(extensionReply(result));
+    })
+  );
+
+  app.post(
+    '/api/pass/extend/demo-confirm',
+    verifyLimit,
+    wrap(async (req, res) => {
+      const result = await gate.confirmDemoExtension(req.body && req.body.t);
+      res.json(extensionReply(result));
+    })
+  );
+
   // ---- Accounts: customers sign up and sign in; the operator signs in with the operator password -------------------
   const signInLimit = createLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many sign-in attempts. Please wait a minute and try again.' });
   const signUpLimit = createLimiter({ windowMs: 60 * 60 * 1000, max: 15, message: 'Too many accounts were created from this connection. Please try again later.' });
@@ -400,7 +515,48 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     signInLimit,
     wrap(async (req, res) => {
       const session = await auth.login(req.body, req, res);
-      res.json({ user: auth.publicUser(session), next: session.role === 'admin' || session.role === 'official' ? '/dashboard' : '/account' });
+      res.json({ user: auth.publicUser(session), next: session.role === 'attendant' ? '/scan' : STAFF_ROLES.has(session.role) ? '/dashboard' : '/account' });
+    })
+  );
+
+  // A customer who forgot the password asks for a link by email. The answer is the same for every address, so nobody can use this
+  // to find out which emails have accounts. The link carries the site's own address (PUBLIC_URL, or the address of a local
+  // computer), never one taken from the request, so a forged Host header cannot send the link to another site.
+  const forgotLimit = createLimiter({ windowMs: 15 * 60 * 1000, max: 10, message: 'Too many requests from this connection. Please try again in a few minutes.' });
+  const resetLimit = createLimiter({ windowMs: 15 * 60 * 1000, max: 15, message: 'Too many attempts from this connection. Please try again in a few minutes.' });
+  const resetOrigin = (req) => config.gate.publicUrl || (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(req.hostname) ? `${req.protocol}://${req.get('host')}` : '');
+
+  app.post(
+    '/api/auth/forgot',
+    ownPagesOnly,
+    forgotLimit,
+    wrap(async (req, res) => {
+      if (!mailer.enabled) throw new HttpError(503, 'email_not_set_up', `A new password cannot be sent by email on this site yet. ${config.supportEmail ? 'Please write to ' + config.supportEmail + '.' : 'Please contact the parking owner.'}`);
+      const origin = resetOrigin(req);
+      if (!origin) throw new HttpError(503, 'site_address_unknown', 'A new password cannot be sent by email until the site address is set (PUBLIC_URL). Please contact the parking owner.');
+      const raw = req.body && req.body.email;
+      if (!normalizeEmail(raw)) throw new HttpError(400, 'invalid_email', 'Enter a valid email address.');
+      const found = auth.startReset(raw);
+      if (found) {
+        // sent in the background, so the answer takes the same time whether or not the address has an account
+        const link = `${origin}/reset-password?t=${encodeURIComponent(found.token)}`;
+        mailer
+          .send({ to: found.user.email, ...passwordResetEmail({ siteName: config.siteName, supportEmail: config.supportEmail, name: found.user.name, link, minutes: found.minutes }) })
+          .then((sent) => sent.status !== 'sent' && log.warn(`A password reset email could not be sent (${sent.reason || sent.status}).`))
+          .catch((err) => log.warn(`A password reset email could not be sent: ${err.message}`));
+      }
+      res.json({ ok: true, minutes: config.auth.resetMinutes, message: `If there is a customer account for that email, a link to choose a new password is on its way. It works for ${config.auth.resetMinutes} minutes and only once.` });
+    })
+  );
+
+  app.post(
+    '/api/auth/reset',
+    ownPagesOnly,
+    resetLimit,
+    wrap(async (req, res) => {
+      const b = req.body && typeof req.body === 'object' ? req.body : {};
+      const session = await auth.resetPassword(String(b.t || ''), b.password, req, res);
+      res.json({ user: auth.publicUser(session), next: '/account' });
     })
   );
 
@@ -417,12 +573,33 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     res.json({ bookings: bookings.forCustomer(session.id) });
   });
 
+  // A signed-in customer cancels their own booking before it starts. The refund follows the cancellation rule; `acceptRefund` is
+  // the amount (in rupees) the page showed, so a customer is never surprised by a lower refund than the one they agreed to.
+  const accountActionLimit = createLimiter({ windowMs: 60 * 1000, max: 20 });
+  app.post(
+    '/api/account/bookings/:ref/cancel',
+    ownPagesOnly,
+    accountActionLimit,
+    wrap(async (req, res) => {
+      const session = auth.current(req);
+      if (!session) throw new HttpError(401, 'login_required', 'Please sign in to cancel a booking.');
+      if (session.role !== 'customer' || !roles.can(session.role, 'booking:cancel-own')) throw new HttpError(403, 'forbidden', 'Only the customer who made a booking can cancel it here. The owner cancels bookings from the dashboard.');
+      const ref = String(req.params.ref).toUpperCase();
+      if (!/^[A-Z0-9]{6,12}$/.test(ref)) throw new HttpError(400, 'invalid_ref', 'That booking reference is not valid.');
+      const accepted = req.body && req.body.acceptRefund !== undefined && req.body.acceptRefund !== null && req.body.acceptRefund !== '' ? Number(req.body.acceptRefund) : NaN;
+      if (!Number.isFinite(accepted) || accepted < 0) throw new HttpError(400, 'invalid_refund', 'Confirm the refund amount that was shown to you.');
+      const { outcome, booking, quote, message } = await bookings.customerCancel(session.id, ref, Math.round(accepted * 100));
+      const email = await emailCustomerCancelled(session, booking, quote, outcome);
+      res.json({ ok: true, outcome, message: `${message}${email.note ? ' ' + email.note : ''}`, email: email.status, refundAmount: quote.refundPaise / 100, refundPercent: quote.percent });
+    })
+  );
+
   // ---- Operator area: protected by a user name and password ---------------------------------------
   const wrongPasswords = new HitCounter(60 * 1000, now);
   // Only staff get through: the ADMIN (signed in at /login with the operator user name and password, or a script that sends
   // the operator password with HTTP Basic) and government OFFICIALS (signed in at /login with their own email). A signed-in
   // customer is refused with 403.
-  const operatorOnlyPage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Staff only</h1><p>You are signed in as a customer, and this page is only for the parking owner and government officials.</p><p><a href="/account">My bookings</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`;
+  const operatorOnlyPage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Staff only</h1><p>You are signed in as a customer, and this page is only for the parking owner and staff.</p><p><a href="/account">My bookings</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`;
   function operatorGate(req, res, next) {
     const { user, password } = config.operator;
     res.set('Cache-Control', 'no-store');
@@ -431,7 +608,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
       req.actor = { role };
       return next();
     };
-    if (session && (session.role === 'admin' || session.role === 'official')) return pass(session.role);
+    if (session && STAFF_ROLES.has(session.role)) return pass(session.role);
     if (!password) {
       if (config.production) {
         return res.status(503).type('text/plain').send('The operator dashboard is switched off until OPERATOR_PASSWORD is set in the server settings.');
@@ -460,7 +637,7 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     const wantsJson = !wantsHtml && /\bapplication\/json\b/i.test(accept);
     if (session) {
       if (wantsHtml) return res.status(403).type('html').send(operatorOnlyPage);
-      return res.status(403).json({ error: 'forbidden', message: 'This area is only for the parking owner and government officials. You are signed in as a customer.' });
+      return res.status(403).json({ error: 'forbidden', message: 'This area is only for the parking owner and staff. You are signed in as a customer.' });
     }
     // A browser opening a page is sent to the sign-in page; the pages' own requests get a plain "sign in" answer (no
     // browser password box); scripts such as curl get the classic HTTP Basic challenge.
@@ -476,14 +653,19 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     if (req.actor && roles.can(req.actor.role, permission)) return next();
     return res.status(403).json({ error: 'forbidden', message: 'Your role does not have permission for this: ' + (roles.PERMISSIONS[permission] || permission) + '.' });
   };
-  // A page only the owner may open: an official who types its address is told so (the page would load no data anyway).
+  // A staff page the signed-in role may not open: an official who types the owner's address, or a gate attendant who types the
+  // dashboard's, is told so (the page would load no data anyway). Each is sent to the page that is theirs.
   const ownerOnlyPage = (permission) => (req, res, next) => {
     if (req.actor && roles.can(req.actor.role, permission)) return next();
-    return res.status(403).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owner only</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>Owner only</h1><p>This page is only for the parking owner.</p><p><a href="/dashboard">Dashboard</a> &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`);
+    const gateOnly = req.actor && req.actor.role === 'attendant';
+    const title = gateOnly ? 'Not for your role' : 'Owner only';
+    const text = gateOnly ? 'This page is not open to gate staff. You can scan customers in and out.' : 'This page is only for the parking owner.';
+    const home = gateOnly ? '<a href="/scan">Scan QR</a>' : '<a href="/dashboard">Dashboard</a>';
+    return res.status(403).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1>${title}</h1><p>${text}</p><p>${home} &middot; <a href="/">Back to ${escapeHtml(config.siteName)}</a></p>`);
   };
   const userById = (id) => auth.users.byId(id);
   // The customer numbers and lists count customers only: an official's or an admin's login is not a customer.
-  const customerAccounts = () => auth.users.users.filter((u) => u.role !== 'official' && u.role !== 'admin');
+  const customerAccounts = () => auth.users.users.filter((u) => !STAFF_ROLES.has(u.role));
 
   app.get('/api/dashboard', operatorGate, needs('bookings:view-all'), (req, res) => {
     res.json({ ...bookings.dashboard(), payments: bookings.paymentStatus(), operatorProtected: Boolean(config.operator.password) });
@@ -519,6 +701,45 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
 
   const operatorLimit = createLimiter({ windowMs: 60 * 1000, max: 60 });
 
+  // Scanning customers in and out at the lot. Only the admin (gate:scan). The phone must be signed in as the admin.
+  const gateLimit = createLimiter({ windowMs: 60 * 1000, max: 240 });
+  const scanner = (req) => auth.current(req);
+
+  app.post(
+    '/api/dashboard/gate/scan',
+    operatorGate,
+    needs('gate:scan'),
+    ownPagesOnly,
+    gateLimit,
+    wrap(async (req, res) => {
+      res.json(await gate.scan(req.body, scanner(req)));
+    })
+  );
+
+  app.get('/api/dashboard/gate/status', operatorGate, needs('gate:scan'), gateLimit, (req, res) => {
+    res.json(gate.status(req.query.ref));
+  });
+
+  app.get('/api/dashboard/gate/inside', operatorGate, needs('gate:scan'), gateLimit, (req, res) => {
+    res.json(gate.inside());
+  });
+
+  // The customer paid the extra time in cash, or the admin drops the charge.
+  app.post(
+    '/api/dashboard/gate/settle',
+    operatorGate,
+    needs('gate:scan'),
+    ownPagesOnly,
+    gateLimit,
+    wrap(async (req, res) => {
+      // Waiving a charge gives the owner's money away: gate staff may only mark it as collected another way (cash).
+      if (req.body && req.body.method === 'waive' && !roles.can(req.actor.role, 'gate:waive')) {
+        throw new HttpError(403, 'forbidden', 'Your role does not have permission for this: ' + roles.PERMISSIONS['gate:waive'] + '. Ask the owner.');
+      }
+      res.json(await gate.settleManually(req.body && req.body.ref, req.body && req.body.method, scanner(req)));
+    })
+  );
+
   // Find the bookings of one vehicle number that the operator can cancel or retry a refund for.
   app.get('/api/dashboard/bookings', operatorGate, needs('bookings:view-all'), operatorLimit, (req, res) => {
     res.json(bookings.operatorFind(req.query.plate));
@@ -532,6 +753,11 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
   // Numbers for the analytics page: collection per day, the busiest hours and so on.
   app.get('/api/dashboard/analytics', operatorGate, needs('analytics:view'), operatorLimit, (req, res) => {
     res.json(bookings.analytics(req.query));
+  });
+
+  // The demand forecast and the price suggestions. Read-only: nothing here can change a price.
+  app.get('/api/dashboard/forecast', operatorGate, needs('analytics:view'), operatorLimit, (req, res) => {
+    res.json(bookings.forecast());
   });
 
   // Sample bookings so the analytics can be shown before any real customer has booked. Test mode only (see addSampleData).
@@ -607,6 +833,45 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     })
   );
 
+  // The logins of gate attendants (the gate staff who scan customers in and out). Only the owner may see, create, change or
+  // remove them.
+  app.get('/api/dashboard/attendants', operatorGate, needs('accounts:manage'), operatorLimit, (req, res) => {
+    res.json({ attendants: auth.attendants() });
+  });
+
+  app.post(
+    '/api/dashboard/attendants',
+    operatorGate,
+    needs('accounts:manage'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      res.status(201).json({ attendant: await auth.addAttendant(req.body) });
+    })
+  );
+
+  app.post(
+    '/api/dashboard/attendants/:id/password',
+    operatorGate,
+    needs('accounts:manage'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      res.json({ attendant: await auth.setAttendantPassword(req.params.id, req.body) });
+    })
+  );
+
+  app.post(
+    '/api/dashboard/attendants/:id/remove',
+    operatorGate,
+    needs('accounts:manage'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      res.json({ ok: true, attendant: await auth.removeAttendant(req.params.id) });
+    })
+  );
+
   // Tell the customer by email that the admin cancelled the booking. Never fails the cancellation: the answer says in words
   // what happened, and the admin sees it in the message under the booking.
   async function emailCustomer(booking, row, outcome) {
@@ -629,6 +894,24 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     return { status: 'failed', note: `The email to ${maskEmail(user.email)} could not be sent (${sent.reason}). Tell the customer yourself.` };
   }
 
+  // Tell a customer by email that the booking they cancelled is cancelled, and what comes back. Never fails the cancellation.
+  async function emailCustomerCancelled(user, booking, quote, outcome) {
+    if (!user || !user.email) return { status: 'no_email', note: '' };
+    if (!mailer.enabled) return { status: 'not_set_up', note: '' };
+    const money = (paise) => '₹' + (paise % 100 ? (paise / 100).toFixed(2) : String(paise / 100));
+    const refundText =
+      outcome === 'refunded'
+        ? `${money(quote.refundPaise)} (${quote.percent}% of what you paid) is being refunded to the payment method you used. It usually reaches you in 5 to 10 working days.${booking.refundId ? ` The refund number is ${booking.refundId}.` : ''}`
+        : outcome === 'refund_failed'
+          ? `The automatic refund of ${money(quote.refundPaise)} did not go through yet. The parking owner has been told and will send it again. You do not need to do anything.`
+          : quote.refundPaise > 0
+            ? 'The payment was only simulated, so nothing needs to be refunded.'
+            : 'Under the cancellation rule nothing is refunded this close to the start.';
+    const content = customerCancelEmail({ siteName: config.siteName, supportEmail: config.supportEmail, name: user.name, row: bookings.operatorRow(booking), amountText: money(booking.amountPaise), refundText });
+    const sent = await mailer.send({ to: user.email, ...content });
+    return sent.status === 'sent' ? { status: 'sent', note: `We also emailed it to ${maskEmail(user.email)}.` } : { status: 'failed', note: '' };
+  }
+
   // Cancel a paid booking and refund it in full (or try a failed refund again).
   app.post(
     '/api/dashboard/bookings/:ref/cancel',
@@ -648,14 +931,95 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     })
   );
 
+  // Send a booking that has not arrived to another free bay, for example when a vehicle is still parked on its bay.
+  app.post(
+    '/api/dashboard/bookings/:ref/move-bay',
+    operatorGate,
+    needs('bookings:move-bay'),
+    ownPagesOnly,
+    operatorLimit,
+    wrap(async (req, res) => {
+      const ref = String(req.params.ref).toUpperCase();
+      if (!/^[A-Z0-9]{6,12}$/.test(ref)) throw new HttpError(400, 'invalid_ref', 'That booking reference is not valid.');
+      const who = scanner(req);
+      const moved = await bookings.moveBay(ref, req.body && req.body.bay, gate.who(who));
+      res.json({ ok: true, message: `Booking ${moved.booking.ref} now has bay ${moved.to} (it was ${moved.from}). The customer's pass shows the new bay.`, booking: bookings.operatorRow(moved.booking) });
+    })
+  );
+
   app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  // ---- What an ordinary phone camera shows ---------------------------------------------------------
+  // The entry and exit QR codes hold the address /scan?t=... The admin's scanner page lives at /scan too, so a request that
+  // carries a QR token is split here: the signed-in admin goes on to the scanner (which records the scan), and everyone
+  // else, a customer or a passer-by with a normal camera, gets a plain page with the lot details only. No sign-in is asked.
+  const spotLimit = createLimiter({ windowMs: 60 * 1000, max: 60 });
+  const qrToken = (req) => (typeof req.query.t === 'string' ? req.query.t.trim() : '');
+  const forStaffScanner = (req, res, next) => {
+    const session = auth.current(req);
+    if (!qrToken(req) || (session && roles.can(session.role, 'gate:scan'))) return next('route');
+    return next();
+  };
+  app.get('/scan', forStaffScanner, spotLimit, (req, res) => {
+    const t = qrToken(req);
+    const spot = gate.spotFor(t);
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    if (!spot) {
+      const body = '<section class="gate-banner bad" role="status"><h2>This QR code is not active</h2><p>It is not valid, or the booking was cancelled. Please ask the parking staff for help.</p></section>';
+      return res.status(404).type('html').send(renderPage('spot.html', null, { SPOT_BODY: body, SPOT_STAFF_LINK: '' }));
+    }
+    const zoneLabel = /^level\b/i.test(spot.zone) ? 'Level' : 'Zone';
+    const body =
+      '<section class="pass-card" aria-label="Parking details">' +
+      '<div class="stack g8"><p class="hold-line">Lot number</p><p class="bay-big">' + escapeHtml(spot.bay) + '</p></div>' +
+      '<dl class="facts">' +
+      '<div><dt>Parking</dt><dd>' + escapeHtml(spot.parking) + '</dd></div>' +
+      '<div><dt>' + zoneLabel + '</dt><dd>' + escapeHtml(spot.zone) + '</dd></div>' +
+      '</dl></section>';
+    // The page itself carries nothing of the code (the booking reference is part of the token), so the staff link is plain.
+    const staffLink = '<p class="fine">Parking staff? <a href="/login?next=%2Fscan">Sign in to scan</a>.</p>';
+    return res.type('html').send(renderPage('spot.html', null, { SPOT_BODY: body, SPOT_STAFF_LINK: staffLink }));
+  });
+
+  // ---- The invoice of a finished booking (the pass link opens it) and the check that a printed copy is genuine ----------
+  const invoiceLimit = createLimiter({ windowMs: 60 * 1000, max: 30 });
+  const invoicePage = (res, status, body) => {
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    return res.status(status).type('html').send(renderPage('invoice.html', null, { INVOICE_BODY: body }));
+  };
+  const invoiceMessage = (tone, title, text) => `<section class="gate-banner ${tone}" role="status"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(text)}</p></section>`;
+  app.get('/invoice', invoiceLimit, (req, res, next) => {
+    (async () => {
+      let booking;
+      try {
+        booking = gate.parse(qrToken(req), ['pass']).booking;
+      } catch (err) {
+        return invoicePage(res, 404, invoiceMessage('bad', 'No invoice', 'This link is not valid. Open your pass again and use the invoice link there.'));
+      }
+      try {
+        const inv = await invoices.issue(booking);
+        const check = `${siteOrigin(req)}/invoice/check?n=${encodeURIComponent(inv.no)}&c=${encodeURIComponent(inv.code)}`;
+        return invoicePage(res, 200, invoices.html(inv, qrSvg(check, 'Invoice check'), check));
+      } catch (err) {
+        if (err instanceof HttpError) return invoicePage(res, err.status, invoiceMessage('warn', 'No invoice yet', err.message));
+        throw err;
+      }
+    })().catch(next);
+  });
+  app.get('/invoice/check', invoiceLimit, (req, res) => {
+    const inv = invoices.verify(typeof req.query.n === 'string' ? req.query.n.trim() : '', typeof req.query.c === 'string' ? req.query.c : '');
+    if (!inv) return invoicePage(res, 404, invoiceMessage('bad', 'Not a match', 'This invoice number and code do not match what this website issued, or the amount was changed. Do not accept it as proof of payment.'));
+    const text = `${inv.kind === 'tax' ? 'Tax invoice' : 'Receipt'} ${inv.no} dated ${inv.date}, issued by ${inv.seller.name} for vehicle ${inv.buyer.plate}: ₹${(inv.totalPaise / 100).toFixed(2)}.${inv.test ? ' This is a test copy: no real payment was made.' : ''}`;
+    return invoicePage(res, 200, invoiceMessage(inv.test ? 'warn' : 'ok', 'This invoice is genuine', text));
+  });
 
   // ---- Pages and files ---------------------------------------------------------------------------
   for (const [route, file] of Object.entries(PAGES)) {
     const gate = ADMIN_PAGES.has(route) ? [operatorGate] : [];
-    if (OWNER_PAGES[route]) gate.push(ownerOnlyPage(OWNER_PAGES[route]));
+    if (PAGE_PERMISSION[route]) gate.push(ownerOnlyPage(PAGE_PERMISSION[route]));
     app.get(route, ...gate, (req, res) => {
-      res.set('Cache-Control', 'no-cache');
+      res.set('Cache-Control', route === '/reset-password' ? 'no-store' : 'no-cache');
+      if (route === '/reset-password') res.set('Referrer-Policy', 'no-referrer'); // the link carries the secret
       res.type('html').send(renderPage(file));
     });
   }
@@ -674,6 +1038,44 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     );
   });
   app.get('/favicon.ico', (req, res) => res.status(204).end());
+
+  // ---- The installable app: the manifest, the service worker (public/sw.js) and the offline page ----------------------
+  // The service worker is served from the root so that it covers every page. Its build name changes with each release, so a new
+  // release replaces the files it saved; passes saved on a phone are kept.
+  const BUILD_ID = String(process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || process.env.GIT_COMMIT || require('../package.json').version).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 12) || 'dev';
+  const swSource = fs.readFileSync(path.join(PUBLIC_DIR, 'sw.js'), 'utf8').replace('{{BUILD_ID}}', BUILD_ID);
+  app.get('/sw.js', (req, res) => {
+    res.set({ 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });
+    res.type('application/javascript').send(swSource);
+  });
+  app.get('/manifest.webmanifest', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('application/manifest+json').send(
+      JSON.stringify({
+        id: '/',
+        name: config.siteName,
+        short_name: config.siteName.slice(0, 12),
+        description: 'Book a parking bay, pay online and show your entry and exit QR codes at the gate.',
+        lang: 'en-IN',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#0b1530',
+        theme_color: '#0b1530',
+        categories: ['travel', 'utilities'],
+        icons: [
+          { src: '/img/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/img/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/img/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+        shortcuts: [
+          { name: 'Book a bay', url: '/book' },
+          { name: 'Find my booking', url: '/lookup' },
+        ],
+      })
+    );
+  });
 
   // Only these folders are public. The HTML pages are served by the routes above, never as raw files.
   for (const folder of ['css', 'js', 'img', 'fonts']) {

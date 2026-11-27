@@ -11,13 +11,16 @@
 
   const CELL_TEXT = { f: 'free', u: 'in use now', b: 'booked for later today', h: 'payment in progress' };
   const STATUS_TEXT = { paid: 'Paid', refunded: 'Refunded', refund_pending: 'Refund sending', refund_failed: 'Refund failed', cancelled: 'Cancelled' };
-  const statusText = (r) => (r.status === 'refunded' && r.cancelledByOperator ? 'Cancelled, refunded' : STATUS_TEXT[r.status] || r.status);
+  const statusText = (r) => (r.status === 'refunded' && r.cancelledByCustomer ? 'Customer cancelled, refunded' : r.status === 'refunded' && r.cancelledByOperator ? 'Cancelled, refunded' : r.status === 'cancelled' && r.cancelledByCustomer ? 'Cancelled by customer' : STATUS_TEXT[r.status] || r.status);
   // Shown instead of "Razorpay said: ..." when the refund was cut off by a restart (Razorpay never answered).
   const INTERRUPTED_TEXT = 'The server restarted while this refund was being sent, so nobody knows whether it went through. Retrying is safe: Razorpay does not refund the same payment in full twice, and if the first try did go through, this booking is just marked as refunded.';
 
   // An official sees every number but cannot refund or run the setup check: those parts of the page are left out for them.
   let canRefund = true;
-  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view')]).then(([refund, check]) => {
+  let canMove = false;
+  const staffReady = Promise.all([B.can('bookings:cancel-refund'), B.can('system:view'), B.can('gate:scan'), B.can('bookings:move-bay')]).then(([refund, check, scan, move]) => {
+    canMove = move;
+    $('scan-link').hidden = !scan;
     canRefund = refund;
     $('cancel-panel').hidden = !refund;
     $('check-panel').hidden = !check;
@@ -88,12 +91,12 @@
 
   function build() {
     ui = {
-      tiles: { car: makeTile('tile-dark', ''), bike: makeTile('', ''), payments: makeTile('', 'Payments today'), money: makeTile('', 'Received today') },
+      tiles: { car: makeTile('tile-dark', ''), bike: makeTile('', ''), payments: makeTile('', 'Payments today'), money: makeTile('', 'Received today'), inside: makeTile('', 'Vehicles inside now'), extra: makeTile('', 'Extra time paid today') },
       lots: { car: makeLot('car'), bike: makeLot('bike') },
     };
     ui.tiles.car.root.firstChild.textContent = cfg.lot.car.label + ' bays in use now';
     ui.tiles.bike.root.firstChild.textContent = cfg.lot.bike.label + ' bays in use now';
-    $('tiles').replaceChildren(ui.tiles.car.root, ui.tiles.bike.root, ui.tiles.payments.root, ui.tiles.money.root);
+    $('tiles').replaceChildren(ui.tiles.car.root, ui.tiles.bike.root, ui.tiles.payments.root, ui.tiles.money.root, ui.tiles.inside.root, ui.tiles.extra.root);
     $('lots').replaceChildren(ui.lots.car.root, ui.lots.bike.root);
   }
 
@@ -137,6 +140,14 @@
     ui.tiles.payments.note.textContent = `${car.paymentsToday} for cars, ${bike.paymentsToday} for two-wheelers`;
     ui.tiles.money.n.textContent = rupees(d.revenueToday);
     ui.tiles.money.note.textContent = `${rupees(car.revenueToday)} from cars, ${rupees(bike.revenueToday)} from two-wheelers`;
+    // from the entry and exit QR scans (the booking money above does not include the extra time)
+    const g = d.gate || { inside: 0, overstaying: 0, paymentDue: 0, extraToday: 0, extraPaymentsToday: 0 };
+    ui.tiles.inside.n.textContent = String(g.inside);
+    ui.tiles.inside.note.textContent =
+      (g.overstaying || g.paymentDue ? `${g.overstaying} over their time, ${g.paymentDue} waiting to pay extra` : 'scanned in and not yet out') +
+      (g.released ? `. ${g.released} no-show ${g.released === 1 ? 'bay' : 'bays'} released` : '');
+    ui.tiles.extra.n.textContent = rupees(g.extraToday);
+    ui.tiles.extra.note.textContent = `${g.extraPaymentsToday} ${g.extraPaymentsToday === 1 ? 'vehicle' : 'vehicles'} stayed past the booked time`;
   }
 
   function noticeNodes(d) {
@@ -155,8 +166,9 @@
   }
 
   function attentionNodes(d) {
-    if (!d.attention.length) return [h('p', { class: 'msg ok' }, 'Nothing needs your attention right now.')];
-    return d.attention.map((r) =>
+    const blocked = (d.bayWarnings || []).map((w) => B.bayWarning(w, { canMove, utcOffsetMinutes: d.utcOffsetMinutes, moved: () => refresh() }));
+    if (!d.attention.length && !blocked.length) return [h('p', { class: 'msg ok' }, 'Nothing needs your attention right now.')];
+    return blocked.concat(d.attention.map((r) =>
       r.status === 'refund_failed'
         ? h(
             'div',
@@ -169,7 +181,7 @@
             canRefund ? h('div', { class: 'banner-actions' }, h('button', { class: 'btn btn-navy btn-sm', type: 'button', onclick: () => openInPanel(r.plate) }, 'Retry refund')) : null
           )
         : h('div', { class: 'banner warn' }, h('b', null, 'A refund is being sent. '), `${r.plate}, ${rupees(r.amount)}. If this is still here after a few minutes, check the Razorpay dashboard.`)
-    );
+    ));
   }
 
   function recentTable(d) {
@@ -532,7 +544,7 @@
     updateLot('car', d.lot.car, d);
     updateLot('bike', d.lot.bike, d);
     $('notice').replaceChildren(...noticeNodes(d));
-    const nextAttention = JSON.stringify(d.attention);
+    const nextAttention = JSON.stringify([d.attention, d.bayWarnings, canMove]);
     if (nextAttention !== attentionKey) {
       attentionKey = nextAttention;
       $('attention').replaceChildren(...attentionNodes(d));

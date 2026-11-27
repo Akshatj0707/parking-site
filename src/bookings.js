@@ -17,6 +17,15 @@
  *
  * The operator can cancel a paid booking that has not ended yet (operatorCancel). That frees the bay at once and
  * sends the full amount back through Razorpay.
+ *
+ * A customer can cancel their own paid booking until it starts (customerCancel, cancelReason "customer"). The amount
+ * that comes back follows the cancellation rule (cancelQuote): all of it when the start is far enough away or the payment
+ * is fresh, otherwise a percentage. The refund can be partial, so a refunded booking carries refundAmountPaise and
+ * refundPercent next to its full amountPaise. A refund that failed keeps refundDuePaise, so the operator's retry sends the
+ * same amount again.
+ *
+ * Extra booked time that a customer who is parked pays for lives in booking.extensions (see gate.js). A started payment
+ * holds the bay for the extra time for a few minutes (busyWindows).
  */
 
 const crypto = require('crypto');
@@ -24,6 +33,8 @@ const S = require('../public/js/shared.js');
 const { HttpError } = require('./errors');
 const { verifyPaymentSignature } = require('./payments');
 const { analytics, overview, sampleBookings } = require('./analytics');
+const { forecast } = require('./forecast');
+const { gateState, releaseAtOf, isReleased } = require('./gate');
 
 const { MIN, HOUR, DAY, LOT, VEHICLES } = S;
 
@@ -34,6 +45,17 @@ const RECONCILE_AFTER = 60 * 1000;
 const RECONCILE_TRIES = 5;
 
 const overlaps = (a, b) => a.startMs < b.endMs && b.startMs < a.endMs;
+
+// A vehicle that was scanned out before its booked end has left: its bay is free again from that moment, for anyone.
+// (A vehicle that leaves at or after the booked end changes nothing here: the booked time was all it held the bay for.)
+const leftEarly = (b) => Boolean(b.exitAt) && b.exitAt < b.endMs;
+
+// A booking that was paid and then cancelled, by the operator or by the customer. (With simulated payments, or when the cancellation
+// rule gives nothing back, no refund follows, so it stays "cancelled" instead of becoming "refunded".)
+const paidThenCancelled = (b) => b.status === 'cancelled' && (b.cancelReason === 'operator' || b.cancelReason === 'customer');
+
+// The money that was sent back for a refunded booking: all of it, or what the cancellation rule allowed.
+const refundedPaise = (b) => (Number.isInteger(b.refundAmountPaise) ? b.refundAmountPaise : b.amountPaise);
 
 function money(paise) {
   return '₹' + (paise % 100 ? (paise / 100).toFixed(2) : String(paise / 100));
@@ -58,6 +80,12 @@ class BookingService {
     this.reconciling = false;
     // With a database: asks it for records another copy of the site saved (set by app.js). Null when bookings are in files.
     this.adopt = null;
+    // Set by app.js (see gate.js): the address of a booking's pass page, and the two checks for payments of extra parking
+    // time. Without them (a plain BookingService) no pass is offered and every payment is an ordinary booking payment.
+    this.passPath = null;
+    this.invoicePath = null; // set by app.js: the address of a booking's invoice, or null when it has none yet
+    this.overstayWebhook = null;
+    this.overstayReconcile = null;
   }
 
   // The booking that belongs to a Razorpay order. If this copy of the site does not know the order and the bookings are in a
@@ -212,23 +240,118 @@ class BookingService {
     return { vehicle, hours, startMs, endMs: startMs + hours * HOUR };
   }
 
+  // The times a booking keeps its bay busy: its own time, and the extra time that a parked customer has started to pay for
+  // (held for a few minutes, like a bay held for a new booking). Nothing when the booking does not block at all.
+  busyWindows(b, now) {
+    if (!this.isBlocking(b, now) || leftEarly(b)) return [];
+    // A no-show lets go of its bay: after the no-show time the booking holds it no longer (until a late vehicle is scanned in).
+    const releasedAt = isReleased(b, now, this.config.gate) ? releaseAtOf(b, this.config.gate) : null;
+    const list = [{ startMs: b.startMs, endMs: releasedAt !== null ? releasedAt : b.endMs }];
+    if (b.status === 'paid' && !b.exitAt && Array.isArray(b.extensions)) {
+      for (const x of b.extensions) if (x.status === 'pending' && x.holdUntil > now) list.push({ startMs: x.fromMs, endMs: x.toMs });
+    }
+    return list;
+  }
+
   // Bays of one vehicle type that are unavailable at any point in [startMs, endMs).
   takenBays(vehicle, startMs, endMs, now, skip) {
     const taken = new Set();
     for (const b of this.store.bookings) {
-      if (b.vehicle !== vehicle || !this.isBlocking(b, now) || (skip && skip(b))) continue;
-      if (b.startMs < endMs && startMs < b.endMs) taken.add(b.bay);
+      if (b.vehicle !== vehicle || (skip && skip(b))) continue;
+      if (this.busyWindows(b, now).some((w) => w.startMs < endMs && startMs < w.endMs)) taken.add(b.bay);
     }
     return taken;
+  }
+
+  // Another booking that holds this booking's bay at some point from `from` to the end of this booking (nothing when the bay is
+  // clear). Used when a vehicle whose bay was released comes in late, and when a booking is moved to another bay.
+  bayBlocker(b, from, now, bay = b.bay) {
+    for (const o of this.store.bookings) {
+      if (o.id === b.id || o.vehicle !== b.vehicle || o.bay !== bay) continue;
+      if (this.busyWindows(o, now).some((w) => w.startMs < b.endMs && from < w.endMs)) return o;
+    }
+    return null;
+  }
+
+  // Bays where a vehicle is physically parked right now (scanned in, not scanned out), whatever their bookings say.
+  occupiedBays(now) {
+    const set = new Set();
+    for (const o of this.store.bookings) if (o.status === 'paid' && o.entryAt && !o.exitAt) set.add(o.bay);
+    return set;
+  }
+
+  // Free bays for booking `b` from `from` to its end, in its own zone first. Never the bay it has now, a bay that is booked in
+  // that time, or a bay with a vehicle still parked in it.
+  freeBaysFor(b, from, now, limit = 4) {
+    const taken = this.takenBays(b.vehicle, from, b.endMs, now, (o) => o.id === b.id);
+    const occupied = this.occupiedBays(now);
+    const lot = LOT[b.vehicle];
+    const home = S.parseBay(b.bay).zone;
+    const free = [];
+    for (let n = 1; n <= lot.total; n++) {
+      const id = S.bayId(b.vehicle, n);
+      if (id !== b.bay && !taken.has(id) && !occupied.has(id)) free.push({ id, zone: S.parseBay(id).zone });
+    }
+    free.sort((x, y) => (x.zone === home ? 0 : 1) - (y.zone === home ? 0 : 1) || (x.id < y.id ? -1 : 1));
+    return free.slice(0, limit).map((f) => ({ bay: f.id, zone: lot.zones[f.zone] }));
+  }
+
+  // Vehicles that are past their booked time and still sit on a bay that someone else has booked, starting now or within the next
+  // few minutes (BAY_WARNING_MINUTES). The admin can send the waiting customer to another free bay (moveBay).
+  bayWarnings(now = this.now()) {
+    const look = this.config.gate.bayWarningMinutes * MIN;
+    const out = [];
+    for (const a of this.store.bookings) {
+      if (a.status !== 'paid' || !a.entryAt || a.exitAt || now < a.endMs) continue;
+      for (const n of this.store.bookings) {
+        if (n.id === a.id || n.status !== 'paid' || n.vehicle !== a.vehicle || n.bay !== a.bay || n.entryAt || n.exitAt) continue;
+        if (n.endMs <= now || n.startMs > now + look || isReleased(n, now, this.config.gate)) continue;
+        const waiting = n.startMs <= now;
+        out.push({
+          bay: a.bay,
+          zone: LOT[a.vehicle].zones[S.parseBay(a.bay).zone],
+          level: waiting ? 'waiting' : 'soon',
+          parked: { ref: a.ref, plate: S.formatPlate(a.plate), endMs: a.endMs, overMinutes: Math.max(0, Math.floor((now - a.endMs) / MIN)) },
+          next: { ref: n.ref, plate: S.formatPlate(n.plate), startMs: n.startMs, endMs: n.endMs, minutesToStart: Math.ceil((n.startMs - now) / MIN) },
+          free: this.freeBaysFor(n, Math.max(n.startMs, now), now),
+        });
+      }
+    }
+    return out.sort((x, y) => x.next.startMs - y.next.startMs);
+  }
+
+  // The admin sends a paid booking that has not arrived yet to another bay of the same kind. The entry and exit QR codes do not
+  // change (they do not name the bay); the customer's pass shows the new bay.
+  async moveBay(ref, newBayInput, actor = 'the admin') {
+    const b = this.store.bookings.find((x) => x.ref === ref);
+    if (!b) throw new HttpError(404, 'unknown_booking', 'We could not find a booking with that reference.');
+    const now = this.now();
+    if (b.status !== 'paid') throw new HttpError(409, 'not_movable', 'Only a paid booking can be moved to another bay.');
+    if (b.entryAt) throw new HttpError(409, 'already_parked', 'This vehicle is already parked, so its booking cannot be moved.');
+    if (b.endMs <= now) throw new HttpError(409, 'not_movable', 'This booking has ended, so it cannot be moved.');
+    const target = S.parseBay(String(newBayInput || '').trim().toUpperCase());
+    if (!target || target.vehicle !== b.vehicle) throw new HttpError(400, 'invalid_bay', 'Choose a bay of the same kind: that bay does not exist for this vehicle.');
+    const bay = S.bayId(b.vehicle, target.n);
+    if (bay === b.bay) throw new HttpError(409, 'same_bay', 'The booking is already on that bay.');
+    if (this.occupiedBays(now).has(bay)) throw new HttpError(409, 'bay_occupied', `Bay ${bay} has a vehicle parked in it right now. Choose another bay.`);
+    if (this.bayBlocker(b, Math.max(b.startMs, now), now, bay)) throw new HttpError(409, 'bay_taken', `Bay ${bay} is booked for that time. Choose another bay.`);
+    const from = b.bay;
+    b.bay = bay;
+    b.bayMoves = [...(Array.isArray(b.bayMoves) ? b.bayMoves : []), { from, to: bay, at: now, by: String(actor).slice(0, 60) }];
+    await this.persistNow();
+    this.log.info(`Booking ${b.ref} (${b.plate}) was moved from bay ${from} to bay ${bay} by ${actor}.`);
+    return { booking: b, from, to: bay };
   }
 
   // A paid or held booking that clashes with `c`: same vehicle number (kind "plate") or same bay (kind "bay").
   findConflict(c, now) {
     let bayConflict = null;
     for (const b of this.store.bookings) {
-      if (b.id === c.id || !this.isBlocking(b, now) || !overlaps(b, c)) continue;
-      if (b.plate === c.plate) return { kind: 'plate', booking: b };
-      if (b.bay === c.bay) bayConflict = { kind: 'bay', booking: b };
+      if (b.id === c.id) continue;
+      const hit = this.busyWindows(b, now).find((w) => w.startMs < c.endMs && c.startMs < w.endMs);
+      if (!hit) continue;
+      if (b.plate === c.plate) return { kind: 'plate', booking: b, window: hit };
+      if (b.bay === c.bay) bayConflict = { kind: 'bay', booking: b, window: hit };
     }
     return bayConflict;
   }
@@ -297,7 +420,7 @@ class BookingService {
     }
 
     // A vehicle can only be in one place at a time.
-    if (this.store.bookings.some((b) => b.status === 'paid' && b.plate === plate && overlaps(b, w))) {
+    if (this.store.bookings.some((b) => b.status === 'paid' && b.plate === plate && !leftEarly(b) && overlaps(b, w))) {
       throw new HttpError(409, 'plate_busy', 'This vehicle already has a booking that overlaps this time. Use “Find my booking” to see it.');
     }
 
@@ -468,6 +591,11 @@ class BookingService {
     if (!event || (event.event !== 'payment.captured' && event.event !== 'order.paid')) return { ignored: 'event' };
     const p = event.payload && event.payload.payment && event.payload.payment.entity;
     if (!p || typeof p.id !== 'string' || typeof p.order_id !== 'string') return { ignored: 'no_payment' };
+    if (this.overstayWebhook) {
+      // a payment for the extra time of a vehicle that stayed too long belongs to no booking order
+      const extra = await this.overstayWebhook(p);
+      if (extra) return extra;
+    }
     const booking = await this.findByOrder(p.order_id);
     if (!booking) return { ignored: 'unknown_order' }; // possibly another site that shares this Razorpay account
     if (p.amount !== booking.amountPaise || p.currency !== 'INR') {
@@ -512,6 +640,7 @@ class BookingService {
           this.persist();
         }
       }
+      if (this.overstayReconcile) found += await this.overstayReconcile();
     } finally {
       this.reconciling = false;
     }
@@ -545,10 +674,13 @@ class BookingService {
     return this.refund(booking, paymentId);
   }
 
-  // Sends the whole payment back. Nothing waits before the status changes to refund_pending, so a second request
-  // for the same booking sees that a refund is already on its way and cannot start another one.
-  async refund(booking, paymentId, { reason = 'Parking time no longer available', byOperator = false } = {}) {
+  // Sends a payment back: all of it, or the part the cancellation rule allowed (amountPaise, or the refundDuePaise that an
+  // earlier attempt saved, so a retry sends the same amount). Nothing waits before the status changes to refund_pending,
+  // so a second request for the same booking sees that a refund is already on its way and cannot start another one.
+  async refund(booking, paymentId, { reason = 'Parking time no longer available', byOperator = false, by = byOperator ? 'operator' : null, amountPaise } = {}) {
+    const amount = [amountPaise, booking.refundDuePaise, booking.amountPaise].find((n) => Number.isInteger(n) && n > 0);
     booking.paymentId = paymentId;
+    booking.refundDuePaise = amount;
     booking.status = 'refund_pending';
     delete booking.refundInterrupted;
     await this.persistNow(); // saved before the request goes out, so a restart can tell a refund was under way
@@ -562,17 +694,20 @@ class BookingService {
     }
     try {
       const refund = await this.razorpay.payments.refund(paymentId, {
-        amount: booking.amountPaise,
+        amount,
         speed: 'normal',
         notes: { booking_ref: booking.ref, reason },
       });
       booking.status = 'refunded';
       booking.refundId = (refund && refund.id) || null;
       booking.refundedAt = this.now();
+      booking.refundAmountPaise = amount;
+      booking.refundPercent = Math.round((amount * 100) / booking.amountPaise);
       booking.refundError = null;
       await this.persistNow();
-      if (byOperator) this.log.warn(`Booking ${booking.ref} was cancelled by the operator and payment ${paymentId} (${money(booking.amountPaise)}) was refunded.`);
-      else this.log.warn(`Booking ${booking.ref} could not be kept, so payment ${paymentId} (${money(booking.amountPaise)}) was refunded.`);
+      if (by === 'operator') this.log.warn(`Booking ${booking.ref} was cancelled by the operator and payment ${paymentId} (${money(amount)}) was refunded.`);
+      else if (by === 'customer') this.log.warn(`Booking ${booking.ref} was cancelled by the customer and ${money(amount)} of payment ${paymentId} (${money(booking.amountPaise)}) was refunded.`);
+      else this.log.warn(`Booking ${booking.ref} could not be kept, so payment ${paymentId} (${money(amount)}) was refunded.`);
       return { outcome: 'refunded', booking };
     } catch (err) {
       booking.status = 'refund_failed';
@@ -583,16 +718,18 @@ class BookingService {
     }
   }
 
-  // Did Razorpay already send this whole payment back, for example by hand in the Razorpay dashboard, or in a refund
-  // whose answer never reached us? Asked only after a refund fails, so a stuck booking can clear itself.
-  async alreadyRefunded(paymentId) {
+  // Did Razorpay already send this payment back (the whole payment, or at least `expectedPaise` of it), for example by hand in
+  // the Razorpay dashboard, or in a refund whose answer never reached us? Asked only after a refund fails, so a stuck
+  // booking can clear itself.
+  async alreadyRefunded(paymentId, expectedPaise) {
     const payments = this.razorpay && this.razorpay.payments;
     if (!payments || typeof payments.fetch !== 'function') return false;
     try {
       const p = await payments.fetch(paymentId);
       if (!p) return false;
       const refunded = Number(p.amount_refunded) || 0;
-      return p.refund_status === 'full' || (refunded > 0 && refunded >= Number(p.amount));
+      const need = Number.isInteger(expectedPaise) && expectedPaise > 0 ? expectedPaise : Number(p.amount);
+      return p.refund_status === 'full' || (refunded > 0 && refunded >= need);
     } catch (err) {
       return false;
     }
@@ -631,6 +768,8 @@ class BookingService {
       amount: b.amountPaise / 100,
       status: b.status,
       holdUntil: b.holdUntil,
+      // the page with the entry and exit QR codes: only a paid booking has one, and only the person who paid is given it
+      ...(b.status === 'paid' && this.passPath ? { pass: this.passPath(b) } : {}),
     };
   }
 
@@ -641,7 +780,7 @@ class BookingService {
     const now = this.now();
     const off = this.config.utcOffsetMinutes;
     const list = this.store.bookings
-      .filter((b) => b.status === 'paid' && b.plate === plate && b.endMs > now)
+      .filter((b) => b.status === 'paid' && b.plate === plate && b.endMs > now && !b.exitAt)
       .sort((a, b) => a.startMs - b.startMs)
       .map((b) => ({
         ref: b.ref,
@@ -663,7 +802,8 @@ class BookingService {
 
   // A paid booking that has not ended yet can be cancelled. A refund that failed can be tried again.
   canCancel(b, now) {
-    return (b.status === 'paid' && b.endMs > now) || b.status === 'refund_failed';
+    // once the vehicle has been scanned in the parking is being used, so it can no longer be cancelled
+    return (b.status === 'paid' && b.endMs > now && !b.entryAt) || b.status === 'refund_failed';
   }
 
   // One booking as the operator sees it. Unlike the public pages it includes the money details.
@@ -682,14 +822,18 @@ class BookingService {
       amount: b.amountPaise / 100,
       status: b.status,
       cancelledByOperator: b.cancelReason === 'operator',
+      cancelledByCustomer: b.cancelReason === 'customer',
+      refundAmount: b.status === 'refunded' ? refundedPaise(b) / 100 : null,
+      refundPercent: Number.isInteger(b.refundPercent) ? b.refundPercent : null,
       sample: Boolean(b.sample),
       paidAt: b.paidAt,
       paymentId: b.paymentId,
       refundId: b.refundId || null,
       refundError: b.refundError || null,
       refundInterrupted: Boolean(b.refundInterrupted),
-      state: b.endMs <= now ? 'ended' : b.startMs <= now ? 'active' : 'upcoming',
+      state: b.endMs <= now || b.exitAt ? 'ended' : b.startMs <= now ? 'active' : 'upcoming',
       canCancel: this.canCancel(b, now),
+      gate: gateState(b, now, this.config.gate),
     };
   }
 
@@ -717,8 +861,13 @@ class BookingService {
       throw new HttpError(409, 'refund_in_progress', 'A refund for this booking is already being sent. Wait a moment, then check the dashboard.');
     }
     if (booking.status === 'refunded') throw new HttpError(409, 'already_refunded', 'This booking was already cancelled and refunded.');
-    if (booking.status === 'cancelled' && booking.cancelReason === 'operator') {
+    if (paidThenCancelled(booking)) {
       throw new HttpError(409, 'already_cancelled', 'This booking was already cancelled.');
+    }
+    if (booking.status === 'paid' && booking.entryAt) {
+      throw new HttpError(409, 'vehicle_inside', booking.exitAt
+        ? 'The vehicle of this booking has already been parked and has left, so it cannot be cancelled here. If the customer should get their money back, refund the payment from the Razorpay Dashboard.'
+        : 'The vehicle of this booking has already been scanned in, so it cannot be cancelled here. If the customer should get their money back, refund the payment from the Razorpay Dashboard.');
     }
     if (!this.canCancel(booking, now)) {
       throw new HttpError(
@@ -754,14 +903,18 @@ class BookingService {
     }
 
     const paymentId = booking.paymentId;
+    // A refund that failed is sent again for the same amount: the customer's own cancellation may have been a part of the payment.
+    const by = byOperator ? 'operator' : booking.cancelReason === 'customer' ? 'customer' : null;
     const result = await this.refund(booking, paymentId, {
-      reason: byOperator ? 'Cancelled by the parking operator' : 'Parking time no longer available',
-      byOperator,
+      reason: byOperator ? 'Cancelled by the parking operator' : by === 'customer' ? 'Cancelled by the customer' : 'Parking time no longer available',
+      by,
     });
 
-    if (result.outcome === 'refund_failed' && (await this.alreadyRefunded(paymentId))) {
+    if (result.outcome === 'refund_failed' && (await this.alreadyRefunded(paymentId, booking.refundDuePaise))) {
       booking.status = 'refunded';
       booking.refundedAt = this.now();
+      booking.refundAmountPaise = booking.refundDuePaise;
+      booking.refundPercent = Math.round((booking.refundDuePaise * 100) / booking.amountPaise);
       booking.refundError = null;
       this.persist();
       this.log.warn(`Booking ${booking.ref}: Razorpay shows payment ${paymentId} was already refunded in full, so the booking was marked as refunded.`);
@@ -772,7 +925,7 @@ class BookingService {
       };
     }
 
-    const amount = money(booking.amountPaise);
+    const amount = money(refundedPaise(booking));
     if (result.outcome === 'refunded') {
       const idText = booking.refundId ? ` (Razorpay refund ${booking.refundId})` : '';
       return {
@@ -788,6 +941,83 @@ class BookingService {
         `Razorpay did not accept the refund${booking.refundError ? ` (it said: ${booking.refundError})` : ''}. ` +
         `${byOperator ? 'The booking is cancelled and its bay is free. ' : ''}` +
         'It is listed under “Needs attention”. Try again in a moment, or refund it from the Razorpay Dashboard.',
+    };
+  }
+
+  // ---- A customer cancels their own booking ------------------------------------------------------------
+
+  // What comes back if the booking is cancelled now. All of it when the start is at least cancel.freeHours away or the
+  // payment is still fresh (cancel.graceMinutes), otherwise cancel.lateRefundPercent of it.
+  cancelQuote(b, now = this.now()) {
+    const rule = this.config.cancel;
+    const freeUntilMs = b.startMs - rule.freeHours * HOUR;
+    const fresh = Boolean(b.paidAt) && now - b.paidAt <= rule.graceMinutes * MIN;
+    const percent = now <= freeUntilMs || fresh ? 100 : rule.lateRefundPercent;
+    const refundPaise = Math.floor((b.amountPaise * percent) / 100);
+    return { percent, refundPaise, keepPaise: b.amountPaise - refundPaise, freeUntilMs, graceUntilMs: b.paidAt ? b.paidAt + rule.graceMinutes * MIN : null };
+  }
+
+  // Only a paid booking that has not started, and whose vehicle was not scanned in, can be cancelled by its customer.
+  canCustomerCancel(b, now) {
+    return b.status === 'paid' && !b.entryAt && b.startMs > now;
+  }
+
+  // The customer's own cancellation. `acceptRefundPaise` is the refund the customer was shown: when the rule has moved on
+  // since (the free period ran out while the page was open), nothing is cancelled and the customer sees the new amount first.
+  async customerCancel(customerId, ref, acceptRefundPaise) {
+    const booking = this.store.bookings.find((b) => b.ref === ref && b.customerId && b.customerId === customerId);
+    if (!booking) throw new HttpError(404, 'unknown_booking', 'We could not find that booking in your account.');
+    const now = this.now();
+
+    // All the checks come first and nothing waits in between, so two quick presses cannot both start a refund.
+    if (booking.status === 'refund_pending') throw new HttpError(409, 'refund_in_progress', 'Your refund is already being sent. Please wait a moment.');
+    if (booking.status === 'refunded' || booking.status === 'refund_failed' || paidThenCancelled(booking)) throw new HttpError(409, 'already_cancelled', 'This booking was already cancelled.');
+    if (booking.status !== 'paid') throw new HttpError(409, 'not_cancellable', 'This booking was never paid, so there is nothing to cancel.');
+    if (booking.entryAt) throw new HttpError(409, 'vehicle_inside', 'Your vehicle has already been scanned in, so this booking cannot be cancelled.');
+    if (booking.startMs <= now) {
+      throw new HttpError(409, 'already_started', 'This booking has already started, so it can no longer be cancelled online. Please contact us if you need help.');
+    }
+
+    const quote = this.cancelQuote(booking, now);
+    if (!Number.isInteger(acceptRefundPaise) || acceptRefundPaise !== quote.refundPaise) {
+      throw new HttpError(409, 'quote_changed', `The refund for cancelling now is ${money(quote.refundPaise)} (${quote.percent}% of ${money(booking.amountPaise)}). Please check it and press Cancel again.`);
+    }
+    const demoPayment = booking.mode === 'demo' || /^demo_/.test(String(booking.paymentId || ''));
+    if (!demoPayment && quote.refundPaise > 0 && !this.razorpay) {
+      throw new HttpError(409, 'payments_unavailable', 'We cannot send a refund right now, so the booking was not cancelled. Please try again later or contact us.');
+    }
+
+    booking.cancelledAt = now;
+    booking.cancelReason = 'customer';
+    booking.refundPercent = quote.percent;
+    if (demoPayment || quote.refundPaise === 0) {
+      // A pretend payment (nothing to send back), or a cancellation that the rule gives nothing back for.
+      booking.status = 'cancelled';
+      booking.refundAmountPaise = demoPayment ? quote.refundPaise : 0;
+      await this.persistNow();
+      this.log.warn(`Booking ${booking.ref} was cancelled by the customer${demoPayment ? ' (a demo booking)' : ', with no refund under the cancellation rule'}.`);
+      return { outcome: 'cancelled', booking, quote, message: demoPayment ? 'Your booking is cancelled. The payment was only simulated, so nothing needs to be refunded.' : 'Your booking is cancelled and the bay is free again. Under the cancellation rule nothing is refunded this close to the start.' };
+    }
+
+    const paymentId = booking.paymentId;
+    const result = await this.refund(booking, paymentId, { reason: 'Cancelled by the customer', by: 'customer', amountPaise: quote.refundPaise });
+    if (result.outcome === 'refund_failed' && (await this.alreadyRefunded(paymentId, quote.refundPaise))) {
+      booking.status = 'refunded';
+      booking.refundedAt = this.now();
+      booking.refundAmountPaise = quote.refundPaise;
+      booking.refundError = null;
+      this.persist();
+      result.outcome = 'refunded';
+    }
+    const amount = money(quote.refundPaise);
+    if (result.outcome === 'refunded') {
+      return { outcome: 'refunded', booking, quote, message: `Your booking is cancelled. ${amount} (${quote.percent}% of what you paid) is on its way back to your original payment method, which usually takes 5 to 10 working days.` };
+    }
+    return {
+      outcome: 'refund_failed',
+      booking,
+      quote,
+      message: `Your booking is cancelled and the bay is free again. The automatic refund of ${amount} did not go through yet. The parking owner has been told and will send it again, so you do not need to do anything. Your reference is ${booking.ref}.`,
     };
   }
 
@@ -811,7 +1041,7 @@ class BookingService {
       for (const b of paidToday) {
         if (b.vehicle !== v) continue;
         const i = S.parseBay(b.bay).n - 1;
-        if (b.startMs <= now && now < b.endMs) {
+        if (b.startMs <= now && now < b.endMs && !leftEarly(b)) {
           bays[i] = 'u';
           inUse += 1;
         } else if (b.startMs > now) {
@@ -847,9 +1077,38 @@ class BookingService {
     const revenuePaise = receivedToday.reduce((sum, b) => sum + b.amountPaise, 0);
     const paymentsToday = receivedToday.length;
 
+    // The entry and exit QR codes: who is inside now, and the extra time that was paid today (kept apart from the booking money
+    // above, which is what the analytics pages count).
+    let inside = 0;
+    let overstaying = 0;
+    let waiting = 0;
+    let released = 0;
+    let extraTodayPaise = 0;
+    let extraTodayCount = 0;
+    for (const b of all) {
+      if (b.status !== 'paid') continue;
+      const stage = gateState(b, now, this.config.gate).stage;
+      if (stage === 'inside' || stage === 'overstaying' || stage === 'payment_due') inside += 1; // still in until the extra time is paid
+      if (stage === 'overstaying') overstaying += 1;
+      if (stage === 'payment_due') waiting += 1;
+      if (isReleased(b, now, this.config.gate)) released += 1; // no-shows whose bay is free for others now
+      const ov = b.overstay;
+      if (ov && ov.status === 'paid' && ov.paidAt >= dayStart && ov.paidAt < dayEnd) {
+        extraTodayPaise += ov.amountPaise;
+        extraTodayCount += 1;
+      }
+      // more booked time that a parked customer paid for
+      for (const x of Array.isArray(b.extensions) ? b.extensions : []) {
+        if (x.status === 'paid' && x.paidAt >= dayStart && x.paidAt < dayEnd) {
+          extraTodayPaise += x.amountPaise;
+          extraTodayCount += 1;
+        }
+      }
+    }
+
     const row = (b) => this.operatorRow(b, now);
     const recent = all
-      .filter((b) => b.status === 'paid' || b.status.startsWith('refund') || (b.status === 'cancelled' && b.cancelReason === 'operator'))
+      .filter((b) => b.status === 'paid' || b.status.startsWith('refund') || paidThenCancelled(b))
       .sort((a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt))
       .slice(0, 25)
       .map(row);
@@ -866,6 +1125,8 @@ class BookingService {
       paymentsToday,
       recent,
       attention,
+      bayWarnings: this.bayWarnings(now),
+      gate: { inside, overstaying, paymentDue: waiting, released, extraToday: extraTodayPaise / 100, extraPaymentsToday: extraTodayCount },
     };
   }
 
@@ -888,7 +1149,7 @@ class BookingService {
   filterBookings(query = {}, userById = null) {
     const now = this.now();
     const off = this.config.utcOffsetMinutes;
-    const BOOKED = (b) => b.status === 'paid' || b.status.startsWith('refund') || (b.status === 'cancelled' && b.cancelReason === 'operator');
+    const BOOKED = (b) => b.status === 'paid' || b.status.startsWith('refund') || paidThenCancelled(b);
     const status = ['all', 'booked', 'paid', 'refunded', 'unpaid'].includes(query.status) ? query.status : 'booked';
     const vehicle = VEHICLES.includes(query.vehicle) ? query.vehicle : 'all';
     const when = ['all', 'today', 'upcoming', 'active', 'ended'].includes(query.when) ? query.when : 'all';
@@ -910,15 +1171,15 @@ class BookingService {
       if (when === 'today') return S.lotDateString(b.startMs, off) === today;
       if (b.status !== 'paid') return false;
       if (when === 'upcoming') return b.startMs > now;
-      if (when === 'active') return b.startMs <= now && now < b.endMs;
-      return b.endMs <= now; // ended
+      if (when === 'active') return b.startMs <= now && now < b.endMs && !b.exitAt;
+      return b.endMs <= now || Boolean(b.exitAt); // ended
     };
 
     let list = this.store.bookings.filter((b) => {
       if (status === 'booked' && !BOOKED(b)) return false;
       if (status === 'paid' && b.status !== 'paid') return false;
       if (status === 'refunded' && !b.status.startsWith('refund')) return false;
-      if (status === 'unpaid' && !(b.status === 'pending' || (b.status === 'cancelled' && b.cancelReason !== 'operator'))) return false;
+      if (status === 'unpaid' && !(b.status === 'pending' || (b.status === 'cancelled' && !paidThenCancelled(b)))) return false;
       if (vehicle !== 'all' && b.vehicle !== vehicle) return false;
       if (from || to) {
         const day = S.lotDateString(b.startMs, off);
@@ -943,7 +1204,7 @@ class BookingService {
         totals.paidPaise += b.amountPaise;
       } else if (b.status === 'refunded') {
         totals.refundedCount += 1;
-        totals.refundedPaise += b.amountPaise;
+        totals.refundedPaise += refundedPaise(b);
       }
     }
     return { list, totals, filters: { status, vehicle, when, from, to, q: text, sort }, now, off };
@@ -1008,7 +1269,7 @@ class BookingService {
           stamp(b.endMs),
           r.hours,
           (b.amountPaise / 100).toFixed(2),
-          r.status === 'cancelled' && r.cancelledByOperator ? 'cancelled by admin' : r.status,
+          r.status === 'cancelled' && r.cancelledByOperator ? 'cancelled by admin' : r.status === 'cancelled' && r.cancelledByCustomer ? 'cancelled by customer' : r.status,
           r.paymentId || '',
           r.orderId || '',
           r.refundId || '',
@@ -1039,7 +1300,7 @@ class BookingService {
         c.lastStart = Math.max(c.lastStart, b.startMs);
         if (b.startMs > now && (c.nextStart === null || b.startMs < c.nextStart)) c.nextStart = b.startMs;
       } else if (b.status === 'refunded') {
-        c.refundedPaise += b.amountPaise;
+        c.refundedPaise += refundedPaise(b);
       }
       stats.set(b.customerId, c);
     }
@@ -1072,16 +1333,17 @@ class BookingService {
   }
 
   // ---- A customer's own bookings -------------------------------------------------------------------
-  // Paid, cancelled-by-the-operator and refunded bookings that were made while signed in as this customer.
+  // Paid, cancelled and refunded bookings that were made while signed in as this customer. A booking that can still be cancelled
+  // carries `cancel`: what would come back if it were cancelled now.
   forCustomer(customerId) {
     const now = this.now();
     const off = this.config.utcOffsetMinutes;
     return this.store.bookings
-      .filter((b) => b.customerId === customerId && (b.status === 'paid' || b.status === 'refunded' || b.status === 'refund_pending' || b.status === 'refund_failed' || (b.status === 'cancelled' && b.cancelReason === 'operator')))
+      .filter((b) => b.customerId === customerId && (b.status === 'paid' || b.status === 'refunded' || b.status === 'refund_pending' || b.status === 'refund_failed' || paidThenCancelled(b)))
       .sort((a, b) => b.startMs - a.startMs)
       .map((b) => {
         let state = 'cancelled';
-        if (b.status === 'paid') state = b.endMs <= now ? 'completed' : b.startMs <= now ? 'active' : 'upcoming';
+        if (b.status === 'paid') state = b.endMs <= now || b.exitAt ? 'completed' : b.startMs <= now ? 'active' : 'upcoming';
         else if (b.status !== 'cancelled') state = 'refunded';
         return {
           ref: b.ref,
@@ -1095,6 +1357,19 @@ class BookingService {
           window: S.formatWindow(b.startMs, b.endMs, off),
           amount: b.amountPaise / 100,
           state,
+          ...(state === 'cancelled' || state === 'refunded'
+            ? { cancelledBy: b.cancelReason === 'customer' ? 'customer' : b.cancelReason === 'operator' ? 'operator' : null, refundAmount: b.status === 'refunded' ? refundedPaise(b) / 100 : null, refundPending: b.status === 'refund_pending' || b.status === 'refund_failed' }
+            : {}),
+          ...(this.canCustomerCancel(b, now)
+            ? (() => {
+                const q = this.cancelQuote(b, now);
+                return { cancel: { refundPercent: q.percent, refundAmount: q.refundPaise / 100, keepAmount: q.keepPaise / 100, freeUntilMs: q.freeUntilMs, freeUntil: S.formatTime(q.freeUntilMs, off), viaGrace: q.percent === 100 && now > q.freeUntilMs, graceUntil: q.graceUntilMs ? S.formatTime(q.graceUntilMs, off) : null, rule: { freeHours: this.config.cancel.freeHours, graceMinutes: this.config.cancel.graceMinutes, latePercent: this.config.cancel.lateRefundPercent } } };
+              })()
+            : {}),
+          ...(b.extensionPaise ? { extraTimeAmount: b.extensionPaise / 100 } : {}),
+          ...(this.invoicePath && this.invoicePath(b) ? { invoice: this.invoicePath(b) } : {}),
+          // the entry and exit QR codes of a paid booking, and where the vehicle is in its visit
+          ...(b.status === 'paid' ? { stage: gateState(b, now, this.config.gate).stage, ...(this.passPath ? { pass: this.passPath(b) } : {}) } : {}),
         };
       });
   }
@@ -1102,6 +1377,11 @@ class BookingService {
   // ---- Analytics for the operator ----------------------------------------------------------------------
   analytics(query) {
     return { ...analytics(this.store.bookings, { now: this.now(), config: this.config, query: query || {} }), paymentMode: this.paymentMode, siteName: this.config.siteName };
+  }
+
+  // The demand forecast for the next 7 days, its back-tested error and the price suggestions (src/forecast.js). Nothing here changes a price.
+  forecast() {
+    return { ...forecast(this.store.bookings, { now: this.now(), config: this.config }), paymentMode: this.paymentMode, siteName: this.config.siteName };
   }
 
   // Sample bookings for a demonstration. Only while payments are simulated; they are in the past and marked sample.

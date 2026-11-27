@@ -6,11 +6,14 @@
   <title>Book a bay · {{SITE_NAME}}</title>
   <meta name="description" content="Choose your vehicle, time and bay, then pay online. {{CAR_TOTAL}} car bays and {{BIKE_TOTAL}} two-wheeler bays.">
   <meta name="theme-color" content="#0b1530">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/dm-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/bricolage-grotesque-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/fonts.css">
   <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/gate.css">
   <link rel="stylesheet" href="/css/chat.css">
 </head>
 <body>
@@ -47,7 +50,7 @@
         <div class="field field-narrow">
           <label class="label" for="plate">Vehicle number</label>
           <input class="input input-plate" id="plate" name="plate" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" placeholder="MP 09 AB 1234" aria-describedby="plate-help">
-          <p class="help" id="plate-help">For example MP 09 AB 1234.</p>
+          <p class="help" id="plate-help">For example MP 09 AB 1234 or 22 BH 1234 AA.</p>
         </div>
       </section>
 

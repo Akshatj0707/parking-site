@@ -25,18 +25,23 @@
 
   // ---- Vehicle numbers ------------------------------------------------------------------
   // Standard Indian format: state code, district number, optional series letters, four digits.
-  // Examples: MP 09 AB 1234, KA 01 1234, DL1CAB1234. BH-series plates are not supported.
+  // Examples: MP 09 AB 1234, KA 01 1234, DL1CAB1234.
   const PLATE_RE = /^([A-Z]{2})([0-9]{1,2})([A-Z]{0,3})([0-9]{4})$/;
+  // Bharat (BH) series, valid in every state: two digits for the year, BH, four digits and one or two letters (never I or O).
+  // Example: 22 BH 1234 AA.
+  const BH_RE = /^([0-9]{2})BH([0-9]{4})([A-HJ-NP-Z]{1,2})$/;
 
   function normalizePlate(input) {
     return String(input == null ? '' : input).slice(0, 40).toUpperCase().replace(/[\s-]+/g, '');
   }
 
   function isValidPlate(normalized) {
-    return PLATE_RE.test(normalized);
+    return PLATE_RE.test(normalized) || BH_RE.test(normalized);
   }
 
   function formatPlate(normalized) {
+    const bh = BH_RE.exec(normalized);
+    if (bh) return `${bh[1]} BH ${bh[2]} ${bh[3]}`;
     const m = PLATE_RE.exec(normalized);
     return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : normalized;
   }

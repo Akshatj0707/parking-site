@@ -67,7 +67,7 @@ function analytics(bookings, { now, config, query = {} }) {
     if (b.sample) sampleCount += 1;
     if (b.status === 'refunded' && b.refundedAt >= startMs && b.refundedAt < endMs) {
       const i = index[S.lotDateString(b.refundedAt, off)];
-      if (i !== undefined) daily[i].refundedPaise += b.amountPaise;
+      if (i !== undefined) daily[i].refundedPaise += Number.isInteger(b.refundAmountPaise) ? b.refundAmountPaise : b.amountPaise;
     }
     if (b.status !== 'paid') continue;
 
@@ -247,11 +247,12 @@ function overview(bookings, users, { now, config }) {
     if (b.status === 'refunded') {
       cancelled += 1;
       const at = b.refundedAt || 0;
-      refunded.allTime += b.amountPaise;
-      if (at >= dayStart) refunded.today += b.amountPaise;
-      if (at >= weekStart) refunded.last7 += b.amountPaise;
-      if (at >= thisMonthStart) refunded.thisMonth += b.amountPaise;
-    } else if (b.status === 'cancelled' && b.cancelReason === 'operator') {
+      const back = Number.isInteger(b.refundAmountPaise) ? b.refundAmountPaise : b.amountPaise; // a cancellation can return a part
+      refunded.allTime += back;
+      if (at >= dayStart) refunded.today += back;
+      if (at >= weekStart) refunded.last7 += back;
+      if (at >= thisMonthStart) refunded.thisMonth += back;
+    } else if (b.status === 'cancelled' && (b.cancelReason === 'operator' || b.cancelReason === 'customer')) {
       cancelled += 1;
     }
     if (b.status !== 'paid') continue;

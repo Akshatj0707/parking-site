@@ -1,8 +1,9 @@
 'use strict';
 
 /*
- * Email to customers. Today it sends one kind of message: "your booking was cancelled" (with the refund), when the admin
- * cancels a paid booking. It talks to an email service over HTTPS (Brevo or Resend), not over SMTP, because free hosts
+ * Email to customers. It sends four kinds of message: "your booking was cancelled" (with the refund), when the admin
+ * cancels a paid booking, "you cancelled your booking" with what comes back, when the customer cancels it themselves, "your
+ * parking ends soon" for a parked vehicle, and the link to set a new password. It talks to an email service over HTTPS (Brevo or Resend), not over SMTP, because free hosts
  * such as Render's free size block the SMTP ports. Nothing here can break a cancellation: send() never throws, and the
  * route that cancels reports in plain words whether the email went.
  *
@@ -127,4 +128,102 @@ function cancellationEmail({ siteName, supportEmail, name, row, amountText, refu
   return { subject, text, html };
 }
 
-module.exports = { createMailer, cancellationEmail, maskEmail, PROVIDERS };
+// The message to a customer who cancelled their own booking. `refundText` says what happens to the money, in a sentence.
+function customerCancelEmail({ siteName, supportEmail, name, row, amountText, refundText }) {
+  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+  const lines = [
+    `Hello ${first},`,
+    '',
+    `You cancelled your booking ${row.ref} at ${siteName}. The bay is free again.`,
+    '',
+    'Your booking:',
+    `  Reference: ${row.ref}`,
+    `  Vehicle:   ${row.vehicleLabel}, ${row.plate}`,
+    `  Bay:       ${row.bay} (${row.zone})`,
+    `  Time:      ${row.window}`,
+    `  Paid:      ${amountText}`,
+    '',
+    refundText,
+  ];
+  if (supportEmail) lines.push('', `Questions? Write to ${supportEmail} and quote ${row.ref}.`);
+  lines.push('', `${siteName}`);
+  const li = (label, value) => `<tr><td style="padding:2px 12px 2px 0;color:#555">${label}</td><td style="padding:2px 0"><b>${escapeHtml(value)}</b></td></tr>`;
+  const html =
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:34rem">' +
+    `<p>Hello ${escapeHtml(first)},</p>` +
+    `<p>You cancelled your booking <b>${escapeHtml(row.ref)}</b> at ${escapeHtml(siteName)}. The bay is free again.</p>` +
+    '<table style="border-collapse:collapse;margin:12px 0">' +
+    li('Reference', row.ref) +
+    li('Vehicle', `${row.vehicleLabel}, ${row.plate}`) +
+    li('Bay', `${row.bay} (${row.zone})`) +
+    li('Time', row.window) +
+    li('Paid', amountText) +
+    '</table>' +
+    `<p>${escapeHtml(refundText)}</p>` +
+    (supportEmail ? `<p>Questions? Write to ${escapeHtml(supportEmail)} and quote ${escapeHtml(row.ref)}.</p>` : '') +
+    `<p>${escapeHtml(siteName)}</p></div>`;
+  return { subject: `You cancelled your parking booking ${row.ref}`, text: lines.join('\n'), html };
+}
+
+// The link to set a new password. It is valid for `minutes` and works once.
+function passwordResetEmail({ siteName, supportEmail, name, link, minutes }) {
+  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+  const lines = [
+    `Hello ${first},`,
+    '',
+    `Someone asked to set a new password for your ${siteName} account. To choose one, open this link:`,
+    '',
+    link,
+    '',
+    `The link works for ${minutes} minutes and only once. If you did not ask for this, ignore this email: your password stays as it is.`,
+  ];
+  if (supportEmail) lines.push('', `Questions? Write to ${supportEmail}.`);
+  lines.push('', siteName);
+  const html =
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:34rem">' +
+    `<p>Hello ${escapeHtml(first)},</p>` +
+    `<p>Someone asked to set a new password for your ${escapeHtml(siteName)} account.</p>` +
+    `<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0b1530;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold">Choose a new password</a></p>` +
+    `<p>If the button does not work, copy this address into your browser:<br>${escapeHtml(link)}</p>` +
+    `<p>The link works for ${minutes} minutes and only once. If you did not ask for this, ignore this email: your password stays as it is.</p>` +
+    (supportEmail ? `<p>Questions? Write to ${escapeHtml(supportEmail)}.</p>` : '') +
+    `<p>${escapeHtml(siteName)}</p></div>`;
+  return { subject: `Set a new password for ${siteName}`, text: lines.join('\n'), html };
+}
+
+// "Your parking ends soon", sent once to a parked customer a few minutes before the booked end. `link` is the pass page, where
+// more hours can be added; it is empty when the site does not know its own address.
+function endingSoonEmail({ siteName, supportEmail, name, row, until, minutesLeft, link, maxHours, graceMinutes, rateText }) {
+  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+  const more = link ? `Need more time? Open your pass and add up to ${maxHours} more hours while the bay is free:\n${link}` : `Need more time? Sign in, open My bookings and then your pass, and add up to ${maxHours} more hours while the bay is free.`;
+  const over = `If you stay past ${until} without adding time, the first ${graceMinutes} minutes are free and after that every started hour costs ${rateText}. You pay it on your pass before you drive out.`;
+  const lines = [
+    `Hello ${first},`,
+    '',
+    `Your parking at ${siteName} ends at ${until}, in about ${minutesLeft} minutes.`,
+    '',
+    `  Vehicle: ${row.vehicleLabel}, ${row.plate}`,
+    `  Bay:     ${row.bay} (${row.zone})`,
+    `  Ends:    ${until}`,
+    '',
+    more,
+    '',
+    over,
+  ];
+  if (supportEmail) lines.push('', `Questions? Write to ${supportEmail} and quote ${row.ref}.`);
+  lines.push('', siteName);
+  const html =
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:34rem">' +
+    `<p>Hello ${escapeHtml(first)},</p>` +
+    `<p>Your parking at ${escapeHtml(siteName)} ends at <b>${escapeHtml(until)}</b>, in about ${minutesLeft} minutes.</p>` +
+    `<p>${escapeHtml(row.vehicleLabel)}, <b>${escapeHtml(row.plate)}</b>, bay ${escapeHtml(row.bay)} (${escapeHtml(row.zone)})</p>` +
+    (link
+      ? `<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0b1530;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold">Open my pass and add time</a></p><p>You can add up to ${maxHours} more hours while the bay is free.</p>`
+      : `<p>${escapeHtml(more)}</p>`) +
+    `<p>${escapeHtml(over)}</p>` +
+    (supportEmail ? `<p>Questions? Write to ${escapeHtml(supportEmail)} and quote ${escapeHtml(row.ref)}.</p>` : '') +
+    `<p>${escapeHtml(siteName)}</p></div>`;
+  return { subject: `Your parking ends at ${until}`, text: lines.join('\n'), html };
+}
+
+module.exports = { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, endingSoonEmail, maskEmail, PROVIDERS };

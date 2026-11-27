@@ -474,10 +474,28 @@
         ['When', b.window],
         ['Paid', rupees(b.amount)],
       ]),
+      passBlock(b),
       h('a', { class: 'btn btn-accent btn-block btn-tall', href: '/lookup?plate=' + encodeURIComponent(plate) }, 'Find my booking'),
       h('button', { type: 'button', class: 'btn btn-outline-light btn-block', onclick: startAgain }, 'Book another bay'),
       h('p', { class: 'fine light' }, 'Note your bay number. You can always find this booking again with your vehicle number.'),
     ];
+  }
+
+  // The entry and exit QR codes that come with a paid booking. The page behind "Open my pass" keeps them (and, for anyone
+  // without an account, the link is the only way back to them, so it is shown as something to save).
+  function passBlock(b) {
+    if (!b.pass) return null;
+    const t = new URLSearchParams(b.pass.split('?')[1] || '').get('t') || '';
+    const qr = (kind, title, text) =>
+      h('div', { class: 'mini-qr' }, h('img', { src: '/api/pass/qr?t=' + encodeURIComponent(t) + '&k=' + kind, alt: title, width: '160', height: '160' }), h('b', null, title), h('small', null, text));
+    return h(
+      'div',
+      { class: 'stack g12' },
+      h('h3', null, 'Your entry and exit QR codes'),
+      h('div', { class: 'mini-qrs' }, qr('in', 'Entry QR', 'Show when you drive in'), qr('out', 'Exit QR', 'Show when you leave')),
+      h('a', { class: 'btn btn-outline-light btn-block', href: b.pass }, 'Open my pass'),
+      h('p', { class: 'fine light' }, 'Take a screenshot or save the pass link. You need these QR codes at the gate. If you stay past your booked time, the extra hours are charged when you leave.')
+    );
   }
 
   function summaryProblem(title, text, kind) {

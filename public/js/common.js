@@ -160,7 +160,7 @@
   }
 
   // ---- The vehicle number box (used on the booking and lookup pages) ----------------------------------------
-  const EXAMPLE = 'For example MP 09 AB 1234';
+  const EXAMPLE = 'For example MP 09 AB 1234 or 22 BH 1234 AA';
   function plateField(input, help, onChange) {
     let touched = false;
     let last; // the value we last reported: undefined until the first report
@@ -221,7 +221,7 @@
 
   // ---- Who is signed in -----------------------------------------------------------------------------------------
   let sessionPromise = null;
-  // { role: 'admin' | 'official' | 'customer', name, email, permissions } or null
+  // { role: 'admin' | 'official' | 'attendant' | 'customer', name, email, permissions } or null
   function session() {
     if (!sessionPromise) sessionPromise = api('/api/me').then((r) => r.user, () => null);
     return sessionPromise;
@@ -257,9 +257,19 @@
     const link = (href, text) => h('a', { class: 'nav-auth', href, 'data-auth': '' }, text);
     const has = (href) => nav.querySelector('a[href="' + href + '"]');
     if (!user) return add(link('/login', 'Sign in'));
-    if (user.role === 'admin' || user.role === 'official') {
+    if (user.role === 'attendant') {
+      // Gate staff see the scanner and nothing else of the owner's pages: the other links are taken out of the menu.
+      nav.querySelectorAll('a').forEach((a) => {
+        if (/^\/(dashboard|bookings|business|analytics|customers|officials)(\/|$)/.test(a.getAttribute('href') || '')) a.remove();
+      });
+      if (!has('/scan')) add(link('/scan', 'Scan QR'));
+      const sub = document.querySelector('header .brand-sub');
+      if (sub) sub.textContent = 'Gate';
+    } else if (user.role === 'admin' || user.role === 'official') {
       if (!has('/dashboard')) add(link('/dashboard', 'Dashboard'));
       if (!has('/business')) add(link('/business', 'Business'));
+      // Only the admin may scan customers in and out; the page and its requests are refused to everyone else.
+      if (Array.isArray(user.permissions) && user.permissions.includes('gate:scan') && !has('/scan')) add(link('/scan', 'Scan QR'));
       // Only the owner manages the officials' logins; the officials' own pages are labelled for them.
       if (user.role === 'admin' && has('/analytics') && !has('/officials')) nav.insertBefore(h('a', { class: 'nav-auth', href: '/officials', 'data-auth': '' }, 'Officials'), has('/analytics').nextSibling);
       const sub = document.querySelector('header .brand-sub');
@@ -270,9 +280,87 @@
     return add(h('button', { class: 'nav-auth nav-signout', type: 'button', 'data-auth': '', onclick: signOut }, 'Sign out'));
   }
 
-  window.Bayfind = { S, ApiError, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, can, signOut };
+  // A warning card for the admin: a vehicle past its booked time still sits on a bay that someone else has booked. When the
+  // reader may move bookings (`canMove`), each free bay gets a button that sends the waiting booking there. `moved(message)` is
+  // called after a move so the page can reload its lists.
+  function bayWarning(w, { canMove, utcOffsetMinutes, moved, failed }) {
+    const at = (ms) => S.formatTime(ms, utcOffsetMinutes);
+    const waiting = w.level === 'waiting';
+    const status = h('p', { class: 'fine', role: 'status' });
+    const buttons = w.free.map((f) =>
+      h(
+        'button',
+        {
+          class: 'btn btn-navy btn-sm',
+          type: 'button',
+          onclick: async (event) => {
+            const btn = event.currentTarget;
+            btn.disabled = true;
+            status.textContent = 'Moving…';
+            try {
+              const r = await post('/api/dashboard/bookings/' + encodeURIComponent(w.next.ref) + '/move-bay', { bay: f.bay });
+              status.textContent = r.message;
+              if (moved) moved(r.message);
+            } catch (err) {
+              btn.disabled = false;
+              status.textContent = err.message;
+              if (failed) failed(err);
+            }
+          },
+        },
+        `Move to bay ${f.bay}`
+      )
+    );
+    return h(
+      'div',
+      { class: 'banner ' + (waiting ? 'bad' : 'warn') },
+      h('b', null, waiting ? `Bay ${w.bay} is blocked. ` : `Bay ${w.bay} may be blocked soon. `),
+      `${w.parked.plate} is still parked there, ${w.parked.overMinutes} min past its booked time (${at(w.parked.endMs)}). `,
+      waiting
+        ? `${w.next.plate} (booking ${w.next.ref}) booked this bay from ${at(w.next.startMs)} and is waiting for it. `
+        : `${w.next.plate} (booking ${w.next.ref}) booked this bay from ${at(w.next.startMs)}, in ${w.next.minutesToStart} min. `,
+      w.free.length
+        ? canMove
+          ? 'Send the waiting customer to a free bay:'
+          : `Free bays for them: ${w.free.map((f) => f.bay).join(', ')}.`
+        : 'No other bay of this kind is free for that time. Ask the parked customer to move their vehicle.',
+      w.free.length && canMove ? h('div', { class: 'banner-actions' }, buttons) : null,
+      status
+    );
+  }
+
+  window.Bayfind = { S, ApiError, bayWarning, api, post, getConfig, now, append, h, icon, rupees, lotTime, clock, duration, applyModeBanner, poll, plateField, remember, session, refreshSession, can, signOut };
 
   // Every page shows the payment-mode strip and who is signed in.
   getConfig().then(applyModeBanner, () => {});
   applyAuthNav();
+
+  // The installable app. The service worker (sw.js) keeps the pass page working with no signal; where the browser offers to
+  // install the site as an app, a link in the footer lets the customer do it. (On an iPhone: Share, then Add to Home Screen.)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {}); // no secure connection or a blocked worker: the site works as before
+    });
+  }
+  let installOffer = null;
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    installOffer = event;
+    const where = document.querySelector('.site-footer .copy');
+    if (!where || where.querySelector('.install-link')) return;
+    const link = h('button', { class: 'install-link', type: 'button' }, 'Install the app');
+    link.addEventListener('click', async () => {
+      if (!installOffer) return;
+      const offer = installOffer;
+      installOffer = null;
+      link.remove();
+      offer.prompt();
+      await offer.userChoice.catch(() => {});
+    });
+    where.append(link);
+  });
+  window.addEventListener('appinstalled', () => {
+    installOffer = null;
+    document.querySelectorAll('.install-link').forEach((link) => link.remove());
+  });
 })();

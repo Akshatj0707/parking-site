@@ -1,12 +1,19 @@
     <p class="updated">Last updated: 22 October 2026.</p>
 
     <h2>Cancelling a booking</h2>
-    <p>You cannot cancel on the website yet. To cancel, contact us as soon as you can and give your vehicle number or booking reference. {{SUPPORT_LINE}}</p>
+    <p>If you booked while signed in, you can cancel on the website: open <a href="/account">My bookings</a> and press “Cancel this booking”. The page tells you how much comes back before you confirm. This works until your booking starts and as long as your vehicle has not been scanned in at the gate.</p>
     <ul>
-      <li><strong>Before your booking starts:</strong> we cancel it and refund the full amount.</li>
-      <li><strong>After your booking has started:</strong> the bay was held for you, so we do not normally refund. If we could not give you the bay you paid for, we do.</li>
+      <li><strong>At least {{CANCEL_FREE_HOURS}} hours before your booking starts, or within {{CANCEL_GRACE_MINUTES}} minutes of paying:</strong> we refund the full amount.</li>
+      <li><strong>Later than that, but before your booking starts:</strong> we refund {{CANCEL_LATE_PERCENT}}% of the amount you paid. The rest pays for the bay that was held for you.</li>
+      <li><strong>After your booking has started:</strong> it can no longer be cancelled on the website, and we do not normally refund, because the bay was held for you. If we could not give you the bay you paid for, we do. Contact us. {{SUPPORT_LINE}}</li>
     </ul>
-    <p>A booking that has already ended cannot be cancelled.</p>
+    <p>If you booked without an account, contact us as soon as you can and give your vehicle number or booking reference. A booking that has already ended cannot be cancelled.</p>
+
+    <h2>Adding time to a booking</h2>
+    <p>While your vehicle is parked, you can add up to {{EXTEND_MAX_HOURS}} hours at a time, before your booked time ends, from your pass page (a booking can be up to {{EXTEND_MAX_TOTAL_HOURS}} hours long in all). The extra time is paid at the price of that day and is not refundable once it is added, because the bay is held for you.</p>
+
+    <h2>If you do not arrive</h2>
+    <p>{{NO_SHOW_TEXT}} Please cancel before the start if you cannot come, so that you get back what the cancellation rule allows.</p>
 
     <h2>If you paid but did not get the bay</h2>
     <p>Sometimes a payment arrives after the hold has ended and the bay is no longer free, for example when you pay just as the {{HOLD_MINUTES}} minutes run out. We check every payment with Razorpay. When a payment cannot become a booking, we send the full amount back automatically. You do not need to do anything, and please do not pay a second time.</p>
@@ -16,7 +23,7 @@
 
     <h2>How refunds are paid</h2>
     <ul>
-      <li>A refund is for the full amount you paid.</li>
+      <li>A refund is for the full amount you paid, or the part that the rule above gives back when you cancel late.</li>
       <li>It goes back to the payment method you used: the same card, UPI ID, bank account or wallet.</li>
       <li>Razorpay says refunds take 5 to 10 working days to show up, depending on your bank or card issuer. Once we have sent a refund we cannot make it faster, but your bank can tell you where it is.</li>
     </ul>
