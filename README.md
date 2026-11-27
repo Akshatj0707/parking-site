@@ -130,7 +130,7 @@ The site has four roles.
 | **Admin** (the owner) | The lot operator. Signs in at `/login` with the user name `operator` (or `OPERATOR_USER`) and `OPERATOR_PASSWORD`. Nobody can become an admin by signing up. | **Everything**: see every booking and every customer, search and download bookings as a spreadsheet, see the money collected and the busiest times, cancel and refund bookings, see the Razorpay connection and run the Setup check. |
 | **Government official** | A login the owner creates on the **Officials** page (`/officials`: name, office, email, password; the owner can also set a new password or remove a login, which signs that official out at once). Officials sign in at `/login` with their email. Nobody can become an official by signing up. | **All the data, read only**: every booking and every customer, all payments and numbers, the spreadsheet download. They cannot cancel or refund, run the Setup check, add sample data or create logins (403). To let officials refund as well, add `bookings:cancel-refund` to the `official` list in `src/roles.js`. |
 | **Gate attendant** | A login the owner creates in the second section of the **Officials** page (`/officials`: name, email, password; the owner can set a new password or remove a login, which signs that person out at once). Attendants sign in at `/login` with their email and land on the scanner. Nobody can become an attendant by signing up. | **Only the gate**: scan customers in and out (the log shows their name), mark an extra charge as collected another way (cash), and move a booking that has not arrived to another free bay. They see no money figures, no customer list and no list of bookings, and cannot cancel, refund, **waive a charge** (only the owner can) or create logins (403). The staff pages other than the scanner answer "Not for your role". |
-| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, and see their own bookings at `/account`. A customer who opens a staff page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Staff only" (403), and the staff data requests answer 403 too. |
+| **Customer** | Anyone who creates an account at `/signup` (name, email, password). | Book a bay, see their own bookings at `/account`, **cancel a booking that has not started** (with a refund by the rule below), **add hours while parked** from their pass page, and get a link by email to choose a new password if they forget it (when email is set up). A customer who opens a staff page (`/dashboard`, `/business`, `/bookings`, `/customers`, `/analytics`) gets "Staff only" (403), and the staff data requests answer 403 too. |
 
 By default a customer must sign in before booking (`CUSTOMER_LOGIN_REQUIRED=off` lets anyone book without an account). Every booking made while signed in belongs to that customer, and the browser cannot choose whose booking it is. Passwords are kept only as scrypt hashes in `users.json` next to `bookings.json`; the sign-in is a signed, HttpOnly, SameSite cookie (`SESSION_SECRET` is optional: without it a random key is kept in the data folder). Wrong passwords are limited per connection and per account. Scripts can still use the operator password with HTTP Basic.
 
@@ -170,9 +170,42 @@ Without an AI key the chat gives built-in answers about parking (prices, free ba
 
 With an AI key the chat can still look up live free bays and prices, never invents prices or bay counts, and declines harmful requests. What visitors type in the chat is sent to the AI service you chose; the privacy page says which one. Never put a key in chat messages or on GitHub: type it only into Render's Environment page or your `.env` file.
 
-### Cancelling a booking and refunding it
+### What a signed-in customer can do by themselves
 
-Drivers cannot cancel on their own: there are no accounts, so the site cannot tell who is asking. You can, from the dashboard:
+**Cancel before the start.** On **My bookings** (`/account`) a paid booking that has not started has **Cancel this booking**. The page first shows what comes back and asks the customer to confirm that exact amount; if the rule gives a different amount by the time they press the button, nothing is cancelled and they are asked again. The refund rule, set with three settings:
+
+| When the customer cancels | What comes back |
+|---|---|
+| At least `CANCEL_FREE_HOURS` (2) hours before the start | the full amount |
+| Within `CANCEL_GRACE_MINUTES` (10) of paying, and before the start | the full amount |
+| Later than that, but before the start | `CANCEL_LATE_REFUND_PERCENT` (50%) of the amount; you keep the rest |
+| After the start | cannot be cancelled online (the owner can, from the dashboard, until the vehicle is scanned in) |
+
+The bay is freed at once and the refund goes back through Razorpay to the card or UPI the customer paid with. If Razorpay does not accept the refund, the booking is still cancelled and appears under **Needs attention** on the dashboard with a **Retry refund** button, the same as for a booking you cancel yourself (next section). Put the same rule into the words of your `/refunds` page.
+
+**Add time while parked.** After the entry scan and before the booked end, the pass page has **Need more time?**: the customer picks 1 to `EXTEND_MAX_HOURS` (4) extra hours and pays for them through Razorpay at the normal price for those hours. It works only if the bay and the vehicle are free for that time (otherwise the page says why and offers fewer hours), and a booking never grows beyond `EXTEND_MAX_TOTAL_HOURS` (8) hours in all. There is no way to move a booking to another day or time: cancel it (the rule above applies) and book again.
+
+**Forgotten password.** When email is set up, the sign-in page shows **Forgot your password?**. The customer types an email address and, if an account has it, gets a link that works once for `RESET_LINK_MINUTES` (30). The answer on the page is the same for every address, so nobody can use it to find out who has an account. The link carries the site's own address (`PUBLIC_URL`; Render fills it in by itself), never one taken from the request.
+
+### Emails the site sends
+
+Only these four, and only when `EMAIL_API_KEY` and `EMAIL_FROM` are set (section 4). Without them nothing is emailed: the sign-in page has no “Forgot your password?” link, and the screens say honestly that no email went out.
+
+- **A customer cancelled their booking**: the booking details, what was paid and what happens to the money.
+- **You cancelled and refunded a booking** from the dashboard.
+- **The password link** (above).
+- **“Your parking ends soon”**: one email `END_REMINDER_MINUTES` (15) before the booked end, only to a customer with an account whose vehicle is inside, with a link to add time. A customer who adds time gets a new reminder for the new end. `0` turns it off.
+
+There is no email for a new booking (the confirmation is on screen and on the pass page) and no text message (that needs a paid service).
+
+### Empty bays and blocked bays
+
+- **No-show.** A paid booking whose vehicle has not been scanned in `NO_SHOW_RELEASE_MINUTES` (30) after the booked start has its bay released, so other customers can book it. The money is kept (the customer did not cancel). If nobody else has taken the bay, the vehicle can still come in later. `0` turns this off.
+- **A vehicle that stays past its time** while someone else has booked that bay from now or from within `BAY_WARNING_MINUTES` (30): the dashboard and the scanner page show a warning, and the owner or a gate attendant can move the waiting booking to a free bay. The site never moves it by itself.
+
+### Cancelling a booking and refunding it (the owner's way)
+
+This part is for you, the operator, and works for any paid booking that has not ended and whose vehicle has not been scanned in (customers cancel their own by the rule above). From the dashboard:
 
 1. Find the box **Cancel and refund a booking** (at the top of the dashboard) and type the vehicle number. You can also press **Cancel…** next to a payment in the Recent payments table.
 2. The site lists that vehicle's paid bookings that have not ended yet. Press **Cancel and refund** and then confirm.
@@ -206,7 +239,7 @@ Good to know:
 - The extra time is **not** part of the booking money in the analytics pages. The dashboard shows it in its own tile, **Extra time paid today**, next to **Vehicles inside now**.
 - Payments for extra time are checked the same three ways as bookings: the browser's confirmation (signature checked), Razorpay's webhook, and a once-a-minute check at Razorpay for a payment that was never confirmed.
 - Settings: `QR_EARLY_MINUTES` (default 15), `OVERSTAY_GRACE_MINUTES` (default 10) and `PUBLIC_URL` (the website address that goes into the QR codes; Render fills it in by itself).
-- Not handled: a vehicle that stays past its time can still be in a bay that someone else booked next. The site charges for the extra time but does not move the next booking.
+- A vehicle that stays past its time can still be in a bay that someone else booked next. The site charges for the extra time and warns the staff (section 3, “Empty bays and blocked bays”), but a person has to move the waiting booking.
 
 ### The chat assistant
 
@@ -372,12 +405,12 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 
 ## 8. What this version does not do (please read before launching)
 
-- **No driver accounts and no sign-in.** The vehicle number is how a booking is found. That means anyone who knows a vehicle number can see when and where it is booked. The site holds no names, phone numbers or email addresses.
-- **No emails or text messages.** The confirmation is on screen, and “Find my booking” shows it again later. Razorpay may send its own payment receipt.
+- **“Find my booking” is public.** Anyone who knows a vehicle number can see when and where it is booked (no name or email is shown there). Accounts hold a customer's name, email address and a hashed password, and no phone number; a customer can also book without an account if you set `CUSTOMER_LOGIN_REQUIRED=off`.
+- **Emails only if you set them up, and no text messages.** There is no email for a new booking: the confirmation is on screen and on the pass page. The four emails the site can send are listed in section 3 and need a Brevo or Resend key. Razorpay may send its own payment receipt.
 - **The chat assistant can be wrong, and it cannot act.** The built-in answers follow your settings. An AI answer is written by a model that sometimes makes mistakes, which the chat window says under the typing box, so keep the prices and the policy pages right: they are what drivers can rely on. The assistant cannot look at, change, cancel or refund a booking (the operator does that on the dashboard). With the AI on, what drivers type in the chat goes to Anthropic (section 3, “Privacy”), so read `/privacy` and have it checked like the other policy pages. The costs are small and capped (section 3, “What it costs”), but they are yours.
-- **Drivers cannot cancel or change a booking themselves.** The operator can cancel and fully refund one from the dashboard (section 3). There is no change or extend button: to stay longer, book the next time slot.
+- **Customers can cancel only before the start, and cannot move a booking.** They get the refund your rule gives (section 3). After the start only you can cancel, from the dashboard, until the vehicle is scanned in. Hours can be added only while the vehicle is parked, up to the limits in section 4; to change the day or time, cancel and book again.
 - **If you refund a payment by hand in the Razorpay Dashboard, the site is not told**, so the bay stays reserved for that time. Use **Cancel and refund** on the dashboard instead.
-- **The site refunds by itself only when a bay is lost** (section 3). Every other refund is your decision.
+- **The site refunds by itself in two cases**: a bay is lost (section 3) and a customer cancels under your rule. Every other refund is your decision, for example a part refund or a booking that has already ended.
 - **No protection against people who start bookings and never pay**, which holds a bay for 10 minutes each time. There is a limit on how many attempts one visitor can make, but add a CAPTCHA or phone verification before a large public launch.
 - **No barrier, camera or sensor is connected.** The entry and exit QR codes are scanned by a person with a phone (section 3, “Entry and exit QR codes”). Nothing opens a gate by itself, and a vehicle that never gets scanned is not noticed.
 - **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database. `LOAD-TEST.md` shows how far one server gets and why the file becomes the slow part first.
