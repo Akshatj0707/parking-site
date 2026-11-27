@@ -1,3 +1,5 @@
+[![Tests](https://github.com/Akshatj0707/parking-site/actions/workflows/ci.yml/badge.svg?branch=free-demo)](https://github.com/Akshatj0707/parking-site/actions/workflows/ci.yml)
+
 > **This is the `free-demo` branch.** It exists only so that one link can start the free demo on Render: here `render.yaml` is the free demo, and the paid blueprint is `render-paid.yaml`. For the real site use the `main` branch.
 
 # Bayfind Smart Parking
@@ -378,7 +380,7 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 - **The site refunds by itself only when a bay is lost** (section 3). Every other refund is your decision.
 - **No protection against people who start bookings and never pay**, which holds a bay for 10 minutes each time. There is a limit on how many attempts one visitor can make, but add a CAPTCHA or phone verification before a large public launch.
 - **No barrier, camera or sensor is connected.** The entry and exit QR codes are scanned by a person with a phone (section 3, “Entry and exit QR codes”). Nothing opens a gate by itself, and a vehicle that never gets scanned is not noticed.
-- **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database.
+- **One server, one file.** This suits a lot of this size (hundreds of bookings a day). If you grow beyond that, move the bookings to a real database. `LOAD-TEST.md` shows how far one server gets and why the file becomes the slow part first.
 - **Invoices are simple.** The invoice page makes a GST tax invoice (or a receipt when no GST number is set) and checks its own printouts, but it does not file GST returns or keep your books. Ask your accountant to check the wording before you rely on it for tax.
 - **The policy pages are plain-language starting points, not legal advice.** Read each one and change what does not match how you run the lot, above all the cancellation rule on `/refunds`. Have a lawyer or your accountant look at them before you take real money. They say nothing about who is responsible for a vehicle or what is left inside it, and nothing about GST: ask your accountant whether GST applies to your parking and how it has to be shown. The words are in the `public/legal` folder (plain HTML). When you change a page, also change the “Last updated” date on it (the line that starts with `<p class="updated">`). After a change, upload the folder again and run the setup (DEPLOY.md, step 11).
 
@@ -412,6 +414,21 @@ npm test
 
 runs the automated checks in about fifteen seconds. They use a temporary data folder and a pretend Razorpay, so they never touch your real bookings or your Razorpay account. Each check should show a tick (✔, or `ok` on older Node versions), and the summary near the end should say `fail 0`.
 
+GitHub runs the same checks by itself on every push (the `Tests` badge at the top of this page; the instructions are in `.github/workflows/ci.yml`), on Node 20 and on Node 22. A green tick there means the checks passed on a clean machine, not only on yours.
+
+### Many people at once
+
+```
+npm install            # once: this also installs the load-testing tool, which the live site does not need
+npm run loadtest
+```
+
+starts its own copy of the site and sends thousands of requests at it for ten seconds per test (home page, free-bay check, holding a bay, and a whole visit from booking to pass), then prints a table of requests per second and how long answers took. `LOAD-TEST.md` has the figures from one run, what they do and do not show, and how to point it at a site that is already running. `test/concurrency.test.js` (part of `npm test`) checks the other half: that two people asking for the last bay at the same instant never get the same one, and that one payment is never counted twice.
+
+### Asking real people (usability survey)
+
+The `usability/` folder is a ready-made test: six small jobs for a new user to try, the ten standard questions of the System Usability Scale (SUS), and a sheet for the answers. `npm run sus` turns the filled-in sheet into a score from 0 to 100 with an average, a spread and a 95% interval (`usability/SUS-SURVEY.md` explains how to run it and how to report it). It is for testing the site; drivers never see it.
+
 ## 11. What is in this folder
 
 ```
@@ -432,7 +449,11 @@ public/          what the browser receives: the HTML pages, css/, js/, img/ and 
   legal.html     the frame (header, footer) around the policy pages
   legal/         the words of the policy pages: pricing, terms, privacy, refunds, shipping, contact
 deploy/          the scripts and files that put the site on a server (DEPLOY.md explains them)
-test/            the automated checks
+test/            the automated checks (npm test)
+scripts/         tools for you, not part of the site: loadtest.js (many people at once) and sus-score.js (usability survey scores)
+usability/       the usability test: the jobs and questions to give people, and a sheet for their answers (SUS-SURVEY.md)
+.github/         GitHub's automatic test run (workflows/ci.yml)
+LOAD-TEST.md     how the site behaves under load, and the figures from one run
 render.yaml      tells Render (render.com) how to run the site (DEPLOY-RENDER.md explains it)
 render-free.yaml the same for Render's free size: a demo with nothing to type, no disk, bookings not kept
 DEPLOY.md        the step-by-step guide to putting the site on a server you rent

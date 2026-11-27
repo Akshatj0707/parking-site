@@ -1,0 +1,6 @@
+# One line per participant. q1 to q10 are the circled numbers (1 to 5) for statements 1 to 10, in order.
+# Lines that start with # and empty lines are ignored. Put a comment in double quotes if it has a comma.
+# Delete the example lines below, or replace them with your own participants.
+participant,role,device,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,comment
+P01,car driver,phone,4,2,5,1,4,2,5,2,4,1,"Example line: delete me"
+P02,two-wheeler rider,phone,3,3,4,2,4,3,4,2,3,2,"Example line: delete me"
