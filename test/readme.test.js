@@ -12,9 +12,10 @@ const root = path.join(__dirname, '..');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 const config = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
 
-// Settings the README deliberately leaves out: DEMO_PAYMENTS was removed (config only notices it, and says so), and RENDER is
-// set by the host itself.
-const NOT_DOCUMENTED = new Set(['DEMO_PAYMENTS', 'RENDER']);
+// Settings the README deliberately leaves out: DEMO_PAYMENTS was removed (config only notices it, and says so), RENDER is set by
+// the host itself, and the optional AI answers for the chat (the keys, the model and the daily limit) are left out of the README
+// on purpose: the site works without them and the chat then answers from the site's own built-in answers.
+const NOT_DOCUMENTED = new Set(['DEMO_PAYMENTS', 'RENDER', 'AI_API_KEY', 'AI_PROVIDER', 'AI_MODEL', 'AI_BASE_URL', 'ANTHROPIC_API_KEY', 'CHAT_MODEL', 'CHAT_DAILY_LIMIT']);
 
 test('every setting that src/config.js reads has its own entry in the README', () => {
   const names = [...new Set([...config.matchAll(/\benv\.([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]))].filter((n) => !NOT_DOCUMENTED.has(n));
@@ -27,6 +28,10 @@ test('the README no longer says that customers cannot sign in, cancel or add tim
   for (const stale of ['No driver accounts', 'Drivers cannot cancel', 'there are no accounts', 'There is no change or extend button', 'No emails or text messages']) {
     assert.ok(!readme.includes(stale), `"${stale}" is out of date`);
   }
+});
+
+test('the README does not mention the AI services or the names of their models', () => {
+  assert.doesNotMatch(readme, /claude|anthropic|\bAI\b|gemini|groq|openai|haiku|sonnet/i);
 });
 
 test('the README explains what a customer can do alone and which emails go out', () => {

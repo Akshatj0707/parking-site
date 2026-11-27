@@ -21,7 +21,7 @@ It is set up for one lot with **200 four-wheeler bays** and **250 two-wheeler ba
 - **Admin pages** (sign in at `/login` as the admin; government officials see the same pages, read only, with their own login from the owner's **Officials** page, `/officials`): **Dashboard** (`/dashboard`: free and used bays, today's payments, a bay map, anything that needs attention), **Business** (`/business`: money collected today, this week, this month and all time, how full the lot is, repeat customers, best weekdays and months, top customers, the Razorpay connection, who can do what), **Bookings** (`/bookings`: every booking with search, filters, a spreadsheet download and cancel-and-refund), **Customers** (`/customers`: every account with what each has spent) and **Analytics** (`/analytics`: money per day and the busiest hours).
 - **Cancel and refund** (on the dashboard): type a vehicle number, confirm, and the bay is freed and the full amount goes back to the driver through Razorpay.
 - **Policy pages** (`/pricing`, `/terms`, `/privacy`, `/refunds`, `/shipping`, `/contact`): plain-language pages that Razorpay checks for before it allows live payments. They fill in your prices, hold time and business details by themselves. Read them and adjust them to how you really run the lot (sections 7 and 8).
-- **Chat assistant** (the yellow **Ask us** button in the corner of the public pages): drivers ask about prices, free bays, how to book, how to find a booking, refunds and how to reach the lot. It works at once with built-in answers made from your own settings and the live bay count. Add an Anthropic key and an AI writes the answers instead (section 3, “The chat assistant”). It cannot book, cancel or refund anything, and it never sees a booking.
+- **Chat assistant** (the yellow **Ask us** button in the corner of the public pages): drivers ask about prices, free bays, how to book, how to find a booking, refunds and how to reach the lot. It answers at once from your own settings (prices, hold time, contact details) and the live bay count. It cannot book, cancel or refund anything, and it never sees a booking.
 - **Saved bookings**: every booking is saved in a file, so nothing is lost when you stop and start the site.
 
 It is a website only (no phone app). It is built with Node.js and plain HTML, CSS and JavaScript. There is no database to install and no build step.
@@ -161,15 +161,6 @@ At the bottom of `/analytics`, **The next 7 days** guesses how busy the lot will
 
 **Price ideas are only ideas.** A day whose busiest hour is forecast at `FORECAST_HIGH_PERCENT` of the bays or more gets “try a higher rate”; a day at `FORECAST_LOW_PERCENT` or less that is also clearly quieter than the rest of the week gets “try an offer”. Nothing in the website changes a price or reads these ideas back; you change the `RATE_` settings yourself. While the confidence is low there are no ideas at all.
 
-### Free AI answers for the chat (any question)
-
-Without an AI key the chat gives built-in answers about parking (prices, free bays, booking, refunds, accounts, the time) and says honestly when it does not know. To let it answer **any** question, give it an AI key. There are two ways:
-
-- **Free:** make a free key at Google AI Studio (aistudio.google.com) for Gemini, or at console.groq.com for Groq. Then add `AI_API_KEY` (the key) and `AI_PROVIDER` (`gemini`, the default, or `groq`) to your settings. `AI_MODEL` changes the model. `AI_PROVIDER=custom` with `AI_BASE_URL` and `AI_MODEL` works with any service that speaks the OpenAI chat format. Free plans have their own daily limits; when one is reached (or the service is down) the chat goes on with the built-in answers.
-- **Paid:** `ANTHROPIC_API_KEY` (the Claude AI model). It is used first when both are set.
-
-With an AI key the chat can still look up live free bays and prices, never invents prices or bay counts, and declines harmful requests. What visitors type in the chat is sent to the AI service you chose; the privacy page says which one. Never put a key in chat messages or on GitHub: type it only into Render's Environment page or your `.env` file.
-
 ### What a signed-in customer can do by themselves
 
 **Cancel before the start.** On **My bookings** (`/account`) a paid booking that has not started has **Cancel this booking**. The page first shows what comes back and asks the customer to confirm that exact amount; if the rule gives a different amount by the time they press the button, nothing is cancelled and they are asked again. The refund rule, set with three settings:
@@ -245,38 +236,14 @@ Good to know:
 
 Every public page (not the dashboard) has a yellow **Ask us** button in the bottom-right corner. It opens a chat window where a driver can ask what parking costs, whether bays are free now or at a later time, how to book, how to find a booking, how refunds work and how to reach the lot. An answer can come with buttons (such as **Book a bay**, **Find my booking** or **Call us**) and a small card that shows the free bays. On a phone the window fills the screen. The chat lives in the driver's browser tab and is gone when the tab is closed.
 
-It answers in one of two ways:
+It answers from the site itself. The site matches the question to a topic and answers from your own settings: your prices, hold time and contact details, and the live count of free bays. When it does not know, it says so and points the driver to the contact details.
 
-- **Instant answers.** No setup and no cost. The site matches the question to a topic and answers from your own settings: your prices, hold time and contact details, and the live count of free bays. Drivers get these until you add a key, and again whenever the AI cannot answer.
-- **AI answers.** Written by Anthropic's Claude AI model, which understands questions worded in any way and replies in the driver's own language (English, Hindi, Hinglish and so on). They start when you add an Anthropic key (the steps are below). If the AI cannot be reached for any reason (no credit left, no internet from the server, a busy moment), the driver simply gets an instant answer.
-
-**What it can and cannot do.** It can tell the prices and the free bays, and send drivers to the right page. It **cannot** book, cancel, refund or look up a booking, and it never sees a booking, a name, a phone number or a payment. The AI is given two read-only lookups (free bays, and the price of a stay) and nothing else. The window tells drivers not to type card details, and says that answers can be wrong. The answers follow your settings, so when you change a price in `.env` the chat follows it: there is nothing to edit.
-
-**Turn on the AI answers (optional)**
-
-1. Make an account on the Anthropic Console, <https://platform.claude.com>. It is separate from a Claude chat subscription and is billed on its own.
-2. Open **Billing** (<https://platform.claude.com/settings/billing>) and add a card or credit. Anthropic's prices are in US dollars, so for a card from an Indian bank switch on international online payments first.
-3. Recommended: make a **workspace** just for this website (<https://platform.claude.com/settings/workspaces>) and set a monthly **spend limit** on it, so the bill cannot go past the amount you chose. (The Default Workspace cannot have a spend limit, which is why a separate one is worth the minute.)
-4. Open **API keys** (<https://platform.claude.com/settings/keys>) and press **Create key**. Name it `parking-site` and, if you made a workspace, choose it. **Copy the key at once**: it starts with `sk-ant-` and is shown only one time.
-5. Put the key in your settings as `ANTHROPIC_API_KEY`: in `.env` on your own computer or server, or in the **Environment** page of Render (DEPLOY-RENDER.md, “Optional extra: the AI chat answers”). Then start the site again (on Render: **Save and deploy**). The terminal says `Chat        AI assistant` when it worked.
-6. Open `/dashboard`, scroll to **Setup check** and press **Run the check**. Its **Chat assistant** part says how drivers are being answered. Ask the chat something yourself and run the check again: it shows how many questions went to the AI today and, if the AI is not answering, why.
-
-Keep the key as private as your Razorpay Key Secret: it lives only in `.env` (or Render's Environment page), never on a web page and never on GitHub. If it ever leaks, delete it on the Anthropic keys page and make a new one.
-
-**What it costs.** Anthropic bills each AI answer to your own Anthropic account. Unless you choose another model with `CHAT_MODEL`, the site uses `claude-haiku-5-5`, which Anthropic's pricing page (<https://platform.claude.com/docs/en/about-claude/pricing>) lists at $0.10 per million input tokens and $0.50 per million output tokens for prompts under 100,000 tokens (a chat here sends a few thousand). An ordinary answer therefore costs a small fraction of one US cent, and a few thousand answers come to about one dollar. That is an estimate: prices change, so check that page and the usage figures on your own Anthropic account. These fences hold whatever drivers do:
-
-- The whole site gives at most `CHAT_DAILY_LIMIT` AI answers a day, counted on the lot's clock (500 unless you change it). Even if every one of them were as long as the chat allows, that is a few US dollars a day at the very most. Past the limit drivers get instant answers until the next day.
-- One visitor gets at most 40 AI answers an hour and can send at most 15 chat messages a minute. A message can be at most 500 characters long, and at most 20 AI answers are written at the same moment.
-- The spend limit you set on Anthropic's side (step 3) is the last fence, and it is yours.
-
-**Privacy.** With the AI on, what a driver types in the chat, together with the last few messages of that same chat, is sent to Anthropic so that it can write the answer. The site itself keeps nothing: it does not save the chat and does not write it to its log. The `/privacy` page changes by itself to say so (it says the answers come from the site alone when there is no key, and leaves the chat out when you switch it off). Read it, like the other policy pages (section 8).
+**What it can and cannot do.** It can tell the prices and the free bays, and send drivers to the right page. It **cannot** book, cancel, refund or look up a booking, and it never sees a booking, a name, a phone number or a payment. The window tells drivers not to type card details. The answers follow your settings, so when you change a price in `.env` the chat follows it: there is nothing to edit. The site keeps nothing of a chat: it does not save it and does not write it to its log. The `/privacy` page says so (read it, like the other policy pages, section 8).
 
 **Switching it off, or changing it**
 
 - `CHAT_ENABLED=off` hides the chat window on every page.
-- `CHAT_DAILY_LIMIT=0` keeps the window but stops the AI (instant answers only) even if the key is still there. Another number changes the daily limit.
-- `CHAT_MODEL` chooses another AI model, for example `claude-sonnet-5-5`, which is more capable and, at the time of writing, 20 times the price of the default. Use the exact name from Anthropic's documentation: a wrong name makes the Setup check say that the model was not found.
-- The built-in answers and the instructions given to the AI are in `src/chat.js`. The window is `public/js/chat.js` (its words and the six starting questions) and `public/css/chat.css` (its looks). Restart the site after a change.
+- The answers are in `src/chat.js`. The window is `public/js/chat.js` (its words and the six starting questions) and `public/css/chat.css` (its looks). Restart the site after a change.
 
 ---
 
@@ -320,11 +287,7 @@ Every setting is optional. After changing `.env`, stop the site (Ctrl+C) and sta
 | `END_REMINDER_MINUTES` | A parked customer with an account gets one email this many minutes before the booked end, with a link to add time (0 to 120; `0` turns it off). Needs the email settings above. | `15` |
 | `PUBLIC_URL` | The website address inside the QR codes, such as `https://parking-site-demo.onrender.com`. Empty: the address the customer used (Render also sets `RENDER_EXTERNAL_URL`). | empty |
 | `UTC_OFFSET_MINUTES` | The lot's clock, in minutes ahead of UTC. `330` is India. | `330` |
-| `AI_API_KEY`, `AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL` | A free (or any OpenAI-compatible) AI for the chat: see “Free AI answers for the chat”. | empty, `gemini` |
-| `ANTHROPIC_API_KEY` | Your Anthropic key, so that an AI writes the chat answers (section 3, “The chat assistant”). It starts with `sk-ant-`. Keep it private. Empty means built-in answers only. | empty |
 | `CHAT_ENABLED` | `off` (or `0`, `false`, `no`) hides the chat window on every page. | on |
-| `CHAT_MODEL` | The AI model that writes the chat answers. | `claude-haiku-5-5` |
-| `CHAT_DAILY_LIMIT` | The most questions the whole site sends to the AI in a day (a try that fails counts too). Past it, drivers get built-in answers until the next day. `0` turns the AI off while the key stays in place. | `500` |
 | `PORT` | The port the site listens on. | `3000` |
 | `DATA_DIR` | The folder where `bookings.json` is saved. | the `data` folder here (on Render: the disk, in `/var/data/test` or, with live keys, `/var/data/live`) |
 | `HOST` | Which network address to listen on. | this computer only; everyone in production |
@@ -389,7 +352,7 @@ Razorpay cannot reach `localhost`, so set this up after the site is online:
 Then:
 
 1. **Activate your Razorpay account.** Razorpay asks for your business details and bank account (KYC) before live keys work. After that, switch the Dashboard to **Live Mode** and generate **Live** keys.
-2. **Set these on your host** (as environment variables, or in a `.env` file): `NODE_ENV=production`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` (the live ones), `RAZORPAY_WEBHOOK_SECRET`, `OPERATOR_PASSWORD` (long and unique), `DATA_DIR`, `SITE_NAME`, `SUPPORT_EMAIL`, `ANTHROPIC_API_KEY` only if you want an AI to answer in the chat (section 3), and `TRUST_PROXY=1` if the host uses a proxy.
+2. **Set these on your host** (as environment variables, or in a `.env` file): `NODE_ENV=production`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` (the live ones), `RAZORPAY_WEBHOOK_SECRET`, `OPERATOR_PASSWORD` (long and unique), `DATA_DIR`, `SITE_NAME`, `SUPPORT_EMAIL`, and `TRUST_PROXY=1` if the host uses a proxy.
 3. **Fill in `BUSINESS_NAME`, `SUPPORT_PHONE` and `BUSINESS_ADDRESS`, and read the policy pages** (`/pricing`, `/terms`, `/privacy`, `/refunds`, `/shipping`, `/contact`). Razorpay checks that a shop has them before it allows real payments, and asks for their web addresses on the activation form.
 4. **Start with an empty `data` folder** so test bookings do not block real bays.
 5. In the Razorpay Dashboard open **Account & Settings → Payments and refunds → Capture and refund settings** and keep **Auto-capture all payments** (Razorpay's default). With manual capture a driver could end up with a booking whose payment is never collected.
@@ -407,7 +370,7 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 
 - **“Find my booking” is public.** Anyone who knows a vehicle number can see when and where it is booked (no name or email is shown there). Accounts hold a customer's name, email address and a hashed password, and no phone number; a customer can also book without an account if you set `CUSTOMER_LOGIN_REQUIRED=off`.
 - **Emails only if you set them up, and no text messages.** There is no email for a new booking: the confirmation is on screen and on the pass page. The four emails the site can send are listed in section 3 and need a Brevo or Resend key. Razorpay may send its own payment receipt.
-- **The chat assistant can be wrong, and it cannot act.** The built-in answers follow your settings. An AI answer is written by a model that sometimes makes mistakes, which the chat window says under the typing box, so keep the prices and the policy pages right: they are what drivers can rely on. The assistant cannot look at, change, cancel or refund a booking (the operator does that on the dashboard). With the AI on, what drivers type in the chat goes to Anthropic (section 3, “Privacy”), so read `/privacy` and have it checked like the other policy pages. The costs are small and capped (section 3, “What it costs”), but they are yours.
+- **The chat assistant only answers questions, and it cannot act.** Its answers follow your settings, so keep the prices and the policy pages right: they are what drivers can rely on. It cannot look at, change, cancel or refund a booking (the operator does that on the dashboard).
 - **Customers can cancel only before the start, and cannot move a booking.** They get the refund your rule gives (section 3). After the start only you can cancel, from the dashboard, until the vehicle is scanned in. Hours can be added only while the vehicle is parked, up to the limits in section 4; to change the day or time, cancel and book again.
 - **If you refund a payment by hand in the Razorpay Dashboard, the site is not told**, so the bay stays reserved for that time. Use **Cancel and refund** on the dashboard instead.
 - **The site refunds by itself in two cases**: a bay is lost (section 3) and a customer cancels under your rule. Every other refund is your decision, for example a part refund or a booking that has already ended.
@@ -434,7 +397,6 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 | Pressing “Cancel and refund” says “This server has no Razorpay keys right now” | The booking was paid for with real Razorpay keys, and those keys are missing from `.env` now. Put them back and restart the site. |
 | The site runs on a server (DEPLOY.md) and something looks wrong | Run `sudo bash /opt/bayfind/deploy/check.sh`. It lists what works and what does not, and says what to do about each problem. DEPLOY.md, step 11, has more. |
 | The chat window has no button, or the **Ask us** button is gone | The chat is switched off: look for `CHAT_ENABLED=off` in `.env` (or in Render's Environment page), remove it and restart. The dashboard never has the button. |
-| You added `ANTHROPIC_API_KEY` but the chat still says “Instant answers”, or the dashboard says “The AI is not answering” | Open `/dashboard`, **Setup check**, **Run the check**: the **Chat assistant** part says what is wrong. The usual causes: the key was copied in part, or has a space or quotes around it (it must start with `sk-ant-`) (401); there is no credit or a payment problem on the Anthropic Billing page (402); `CHAT_MODEL` names a model that does not exist (404); a spend limit or rate limit on the Anthropic account has been reached (429); or the server cannot reach the internet. Nothing is lost meanwhile: drivers get the built-in answers. If you only just added the key, check that you restarted the site. |
 | “This vehicle already has a booking that overlaps this time” | One vehicle number can hold only one paid booking at a time. Use “Find my booking” to see it. |
 
 ---
@@ -474,7 +436,7 @@ src/
   store.js       saving bookings to data/bookings.json
   config.js      reads the settings
   ratelimit.js   limits on how fast one visitor can ask for things
-  chat.js        the chat assistant: built-in answers, the AI call, the limits and the daily count
+  chat.js        the chat assistant: the answers it gives and the topics it knows
   words.js       plain-English words for days and lists, used by the pages and the chat
   errors.js      error messages
 public/          what the browser receives: the HTML pages, css/, js/, img/ and fonts/
