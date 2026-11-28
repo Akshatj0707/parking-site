@@ -155,6 +155,106 @@ test('a new password signs the customer out on every other device', async (t) =>
   assert.equal((await s.get('/api/me', as(cookieOf(done)))).json.user.email, 'asha.verma@example.com');
 });
 
+// ===== "Your password was changed" =================================================================
+// After a reset the customer is told, in a second email, that the password was changed and when, with a way back if it was not them.
+
+// A request with a Host header of our choosing (the test client always sends the real one).
+function postWithHost(s, path, payload, host) {
+  const { port } = new URL(s.base);
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const req = http.request({ host: '127.0.0.1', port, path, method: 'POST', headers: { Host: host, accept: 'application/json', 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, (res) => {
+      let text = '';
+      res.on('data', (c) => (text += c));
+      res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(text) }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('after a reset the customer gets a "password changed" email with the time and a way back, never the password', async (t) => {
+  const s = await site(t, { env: { PUBLIC_URL: SITE, SUPPORT_EMAIL: 'help@example.com' } });
+  await customer(s);
+  await forgot(s, 'asha.verma@example.com');
+  await waitFor(() => s.mailbox.calls.length === 1);
+  const link = linkIn(s.mailbox.calls[0]);
+  const done = await reset(s, tokenOf(link), 'a-brand-new-password');
+  assert.equal(done.status, 200, done.text);
+  await waitFor(() => s.mailbox.calls.length === 2, 'the "password changed" email');
+
+  const mail = s.mailbox.calls[1];
+  assert.equal(mail.to, 'asha.verma@example.com');
+  assert.equal(mail.subject, 'Your Bayfind password was changed');
+  assert.match(mail.html, /Hello Asha,/);
+  assert.match(mail.html, /Wed 14 Oct, 10:00/, "the lot's clock");
+  assert.ok(mail.html.includes(`href="${SITE}/forgot-password"`), 'a link to ask for a new reset link');
+  assert.match(mail.html, /If it was <b>not<\/b> you/);
+  assert.match(mail.html, /help@example\.com/);
+  assert.ok(!mail.html.includes('a-brand-new-password') && !mail.html.includes('a-good-password'), 'no password in the email');
+  assert.ok(!mail.html.includes(tokenOf(link)) && !mail.html.includes('/reset-password'), 'no reset link or token in the email');
+});
+
+test('a reset that fails sends no "password changed" email', async (t) => {
+  const s = await site(t, { env: { PUBLIC_URL: SITE } });
+  await customer(s);
+  await forgot(s, 'asha.verma@example.com');
+  await waitFor(() => s.mailbox.calls.length === 1);
+  const token = tokenOf(linkIn(s.mailbox.calls[0]));
+  assert.equal((await reset(s, token, 'short')).status, 400, 'a weak password');
+  assert.equal((await reset(s, `${token}x`, 'a-brand-new-password')).status, 400, 'a changed link');
+  assert.equal((await reset(s, 'nonsense', 'a-brand-new-password')).status, 400);
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(s.mailbox.calls.length, 1, 'only the reset link was ever sent');
+  assert.equal((await s.post('/api/auth/login', { identifier: 'asha.verma@example.com', password: 'a-good-password' })).status, 200, 'the old password still works');
+});
+
+test('a mail service that is down does not stop the reset, and the page is not held up by it', async (t) => {
+  const warnings = [];
+  const s = await site(t, { env: { PUBLIC_URL: SITE }, log: { info() {}, warn: (m) => warnings.push(m), error() {}, log() {} } });
+  await customer(s);
+  await forgot(s, 'asha.verma@example.com');
+  await waitFor(() => s.mailbox.calls.length === 1);
+  s.mailbox.state.fail = true;
+  const done = await reset(s, tokenOf(linkIn(s.mailbox.calls[0])), 'a-brand-new-password');
+  assert.equal(done.status, 200, done.text);
+  assert.equal((await s.post('/api/auth/login', { identifier: 'asha.verma@example.com', password: 'a-brand-new-password' })).status, 200, 'the new password works');
+  await waitFor(() => warnings.some((w) => /password changed/.test(w)), 'the warning');
+  assert.equal(s.mailbox.calls.length, 1, 'nothing more was sent');
+});
+
+test('the "password changed" email never carries an address taken from the request', async (t) => {
+  const s = await site(t); // no PUBLIC_URL: the site knows only a computer's own address
+  await customer(s);
+  await forgot(s, 'asha.verma@example.com');
+  await waitFor(() => s.mailbox.calls.length === 1);
+  const token = tokenOf(linkIn(s.mailbox.calls[0]));
+  const done = await postWithHost(s, '/api/auth/reset', { t: token, password: 'a-brand-new-password' }, 'evil.example');
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  await waitFor(() => s.mailbox.calls.length === 2, 'the "password changed" email');
+  const mail = s.mailbox.calls[1];
+  assert.ok(!mail.html.includes('evil.example'), 'the forged host is nowhere in the email');
+  assert.ok(!/href=/.test(mail.html), 'no link at all when the site does not know its own address');
+  assert.match(mail.html, /Forgot your password\?/, 'it says where to go instead');
+});
+
+test('the "password changed" email is built and escaped properly', () => {
+  const { passwordChangedEmail } = require('../src/mail');
+  const full = passwordChangedEmail({ siteName: 'Bay <b>find</b>', supportEmail: 'help@example.com', name: '  <script>x</script> Verma ', when: 'Wed 14 Oct, 10:00', link: 'https://x.test/forgot-password?a=1&b="2"' });
+  assert.equal(full.subject, 'Your Bay <b>find</b> password was changed', 'the subject is plain text');
+  assert.ok(!full.html.includes('<script>') && !full.html.includes('Bay <b>find</b>'), 'html is escaped');
+  assert.ok(full.html.includes('&lt;script&gt;') && full.html.includes('&amp;b=&quot;2&quot;'));
+  assert.match(full.text, /^Hello <script>x<\/script>,/, 'only the first word of the name is used, as plain text');
+  assert.match(passwordChangedEmail({ siteName: 'Bayfind', name: 'Asha Verma', when: 'x', link: '' }).text, /^Hello Asha,/);
+  assert.match(full.text, /changed on Wed 14 Oct, 10:00/);
+  assert.match(full.text, /https:\/\/x\.test\/forgot-password/);
+  assert.match(full.text, /help@example\.com/);
+  const bare = passwordChangedEmail({ siteName: 'Bayfind', name: '', when: 'Wed 14 Oct, 10:00', link: '' });
+  assert.match(bare.text, /^Hello there,/);
+  assert.ok(!/help@|http/.test(bare.text) && !/href=/.test(bare.html), 'no support address and no link when there are none');
+  assert.match(bare.text, /Forgot your password\?/);
+});
+
 test('only three reset emails an hour go to one address, and the site never says so', async (t) => {
   const s = await site(t);
   await customer(s);

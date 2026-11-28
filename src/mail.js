@@ -1,9 +1,9 @@
 'use strict';
 
 /*
- * Email to customers. It sends four kinds of message: "your booking was cancelled" (with the refund), when the admin
+ * Email to customers. It sends five kinds of message: "your booking was cancelled" (with the refund), when the admin
  * cancels a paid booking, "you cancelled your booking" with what comes back, when the customer cancels it themselves, "your
- * parking ends soon" for a parked vehicle, and the link to set a new password. It talks to an email service over HTTPS (Brevo or Resend), not over SMTP, because free hosts
+ * parking ends soon" for a parked vehicle, the link to set a new password, and "your password was changed" once it is. It talks to an email service over HTTPS (Brevo or Resend), not over SMTP, because free hosts
  * such as Render's free size block the SMTP ports. Nothing here can break a cancellation: send() never throws, and the
  * route that cancels reports in plain words whether the email went.
  *
@@ -191,6 +191,38 @@ function passwordResetEmail({ siteName, supportEmail, name, link, minutes }) {
   return { subject: `Set a new password for ${siteName}`, text: lines.join('\n'), html };
 }
 
+// "Your password was changed", sent after a customer sets a new password with the emailed link. It never holds the password or a
+// link that signs anyone in. `when` is the lot's clock; `link` is the page that asks for a new reset link (empty when the site
+// does not know its own address), for the customer who did not do this.
+function passwordChangedEmail({ siteName, supportEmail, name, when, link }) {
+  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+  const next = link
+    ? `If it was not you, choose a new password now. Open this page and ask for a new link:\n${link}`
+    : 'If it was not you, choose a new password now: open the sign-in page, press "Forgot your password?" and follow the link we email you.';
+  const lines = [
+    `Hello ${first},`,
+    '',
+    `The password of your ${siteName} account was changed on ${when}. It was done with the link we emailed you, and you were signed out on every other device.`,
+    '',
+    'If it was you, there is nothing more to do.',
+    '',
+    next,
+  ];
+  if (supportEmail) lines.push('', `Still worried? Write to ${supportEmail} and we will help.`);
+  lines.push('', siteName);
+  const html =
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:34rem">' +
+    `<p>Hello ${escapeHtml(first)},</p>` +
+    `<p>The password of your ${escapeHtml(siteName)} account was changed on <b>${escapeHtml(when)}</b>. It was done with the link we emailed you, and you were signed out on every other device.</p>` +
+    '<p>If it was you, there is nothing more to do.</p>' +
+    (link
+      ? `<p>If it was <b>not</b> you, choose a new password now:</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0b1530;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold">Ask for a new link</a></p>`
+      : `<p>${escapeHtml(next)}</p>`) +
+    (supportEmail ? `<p>Still worried? Write to ${escapeHtml(supportEmail)} and we will help.</p>` : '') +
+    `<p>${escapeHtml(siteName)}</p></div>`;
+  return { subject: `Your ${siteName} password was changed`, text: lines.join('\n'), html };
+}
+
 // "Your parking ends soon", sent once to a parked customer a few minutes before the booked end. `link` is the pass page, where
 // more hours can be added; it is empty when the site does not know its own address.
 function endingSoonEmail({ siteName, supportEmail, name, row, until, minutesLeft, link, maxHours, graceMinutes, rateText }) {
@@ -226,4 +258,4 @@ function endingSoonEmail({ siteName, supportEmail, name, row, until, minutesLeft
   return { subject: `Your parking ends at ${until}`, text: lines.join('\n'), html };
 }
 
-module.exports = { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, endingSoonEmail, maskEmail, PROVIDERS };
+module.exports = { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, passwordChangedEmail, endingSoonEmail, maskEmail, PROVIDERS };

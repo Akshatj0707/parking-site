@@ -176,15 +176,16 @@ The bay is freed at once and the refund goes back through Razorpay to the card o
 
 **Add time while parked.** After the entry scan and before the booked end, the pass page has **Need more time?**: the customer picks 1 to `EXTEND_MAX_HOURS` (4) extra hours and pays for them through Razorpay at the normal price for those hours. It works only if the bay and the vehicle are free for that time (otherwise the page says why and offers fewer hours), and a booking never grows beyond `EXTEND_MAX_TOTAL_HOURS` (8) hours in all. There is no way to move a booking to another day or time: cancel it (the rule above applies) and book again.
 
-**Forgotten password.** When email is set up, the sign-in page shows **Forgot your password?**. The customer types an email address and, if an account has it, gets a link that works once for `RESET_LINK_MINUTES` (30). The answer on the page is the same for every address, so nobody can use it to find out who has an account. The link carries the site's own address (`PUBLIC_URL`; Render fills it in by itself), never one taken from the request.
+**Forgotten password.** When email is set up, the sign-in page shows **Forgot your password?**. The customer types an email address and, if an account has it, gets a link that works once for `RESET_LINK_MINUTES` (30). The answer on the page is the same for every address, so nobody can use it to find out who has an account. The link carries the site's own address (`PUBLIC_URL`; Render fills it in by itself), never one taken from the request. After the new password is saved, a second email tells the customer it was changed (see “Emails the site sends”).
 
 ### Emails the site sends
 
-Only these four, and only when `EMAIL_API_KEY` and `EMAIL_FROM` are set (section 4). Without them nothing is emailed: the sign-in page has no “Forgot your password?” link, and the screens say honestly that no email went out.
+Only these five, and only when `EMAIL_API_KEY` and `EMAIL_FROM` are set (section 4). Without them nothing is emailed: the sign-in page has no “Forgot your password?” link, and the screens say honestly that no email went out.
 
 - **A customer cancelled their booking**: the booking details, what was paid and what happens to the money.
 - **You cancelled and refunded a booking** from the dashboard.
 - **The password link** (above).
+- **“Your password was changed”**: sent right after a customer sets a new password with that link. It says when it happened and that every other device was signed out, and it holds a button to ask for a new link if it was not them. It never contains the password. If the email service is down, the new password still works.
 - **“Your parking ends soon”**: one email `END_REMINDER_MINUTES` (15) before the booked end, only to a customer with an account whose vehicle is inside, with a link to add time. A customer who adds time gets a new reminder for the new end. `0` turns it off.
 
 There is no email for a new booking (the confirmation is on screen and on the pass page) and no text message (that needs a paid service).
@@ -369,7 +370,7 @@ Razorpay charges you its own fee on each payment (see its pricing page). The dri
 ## 8. What this version does not do (please read before launching)
 
 - **“Find my booking” is public.** Anyone who knows a vehicle number can see when and where it is booked (no name or email is shown there). Accounts hold a customer's name, email address and a hashed password, and no phone number; a customer can also book without an account if you set `CUSTOMER_LOGIN_REQUIRED=off`.
-- **Emails only if you set them up, and no text messages.** There is no email for a new booking: the confirmation is on screen and on the pass page. The four emails the site can send are listed in section 3 and need a Brevo or Resend key. Razorpay may send its own payment receipt.
+- **Emails only if you set them up, and no text messages.** There is no email for a new booking: the confirmation is on screen and on the pass page. The five emails the site can send are listed in section 3 and need a Brevo or Resend key. Razorpay may send its own payment receipt.
 - **The chat assistant only answers questions, and it cannot act.** Its answers follow your settings, so keep the prices and the policy pages right: they are what drivers can rely on. It cannot look at, change, cancel or refund a booking (the operator does that on the dashboard).
 - **Customers can cancel only before the start, and cannot move a booking.** They get the refund your rule gives (section 3). After the start only you can cancel, from the dashboard, until the vehicle is scanned in. Hours can be added only while the vehicle is parked, up to the limits in section 4; to change the day or time, cancel and book again.
 - **If you refund a payment by hand in the Razorpay Dashboard, the site is not told**, so the bay stays reserved for that time. Use **Cancel and refund** on the dashboard instead.
