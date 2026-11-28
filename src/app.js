@@ -16,7 +16,7 @@ const { createChat } = require('./chat');
 const { createAuth, normalizeEmail } = require('./auth');
 const { createGate, qrSvg } = require('./gate');
 const { createInvoices } = require('./invoice');
-const { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, maskEmail } = require('./mail');
+const { createMailer, cancellationEmail, customerCancelEmail, passwordResetEmail, passwordChangedEmail, maskEmail } = require('./mail');
 const { createReminders } = require('./reminders');
 const roles = require('./roles');
 
@@ -556,6 +556,16 @@ function createApp({ config, store, razorpay = null, now = Date.now, log = conso
     wrap(async (req, res) => {
       const b = req.body && typeof req.body === 'object' ? req.body : {};
       const session = await auth.resetPassword(String(b.t || ''), b.password, req, res);
+      // Tell the customer what just happened, in the background: the new password is already saved, and a mail service that is
+      // slow or down must not hold up the page or undo anything. If it was not them, the email says how to take the account back.
+      if (session.email) {
+        const origin = resetOrigin(req);
+        const when = `${S.formatDate(now(), config.utcOffsetMinutes)}, ${S.formatTime(now(), config.utcOffsetMinutes)}`;
+        mailer
+          .send({ to: session.email, ...passwordChangedEmail({ siteName: config.siteName, supportEmail: config.supportEmail, name: session.name, when, link: origin ? `${origin}/forgot-password` : '' }) })
+          .then((sent) => sent.status !== 'sent' && log.warn(`The "password changed" email could not be sent (${sent.reason || sent.status}).`))
+          .catch((err) => log.warn(`The "password changed" email could not be sent: ${err.message}`));
+      }
       res.json({ user: auth.publicUser(session), next: '/account' });
     })
   );

@@ -44,6 +44,17 @@ test('the README explains what a customer can do alone and which emails go out',
   }
 });
 
+test('the README lists every email the site can send, and says how many there are', () => {
+  const mail = require('../src/mail');
+  const kinds = Object.keys(mail).filter((k) => /Email$/.test(k) && k !== 'maskEmail'); // maskEmail only hides part of an address
+  assert.equal(kinds.length, 5, `the code has these emails: ${kinds.join(', ')}`);
+  assert.ok(readme.includes('Only these five, and only when'), 'section 3 says "five"');
+  assert.ok(readme.includes('The five emails the site can send'), 'the limitations list says "five"');
+  const section = readme.split('### Emails the site sends')[1].split('### ')[0];
+  assert.equal((section.match(/^- \*\*/gm) || []).length, 5, 'one bullet for each email');
+  assert.ok(section.includes('Your password was changed'), 'the password-changed email is listed');
+});
+
 test('the defaults the README quotes are the defaults in the code', () => {
   const cfgDefault = (name) => {
     const m = config.match(new RegExp('env\\.' + name + ',\\s*(\\d+)'));
